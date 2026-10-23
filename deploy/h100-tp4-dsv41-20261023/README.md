@@ -22,7 +22,7 @@
 - `--chunked-prefill-size 8192`、`--moe-runner-backend flashinfer_mxfp4`、**不传** `--flashinfer-mxfp4-moe-precision`（=W4A16）
 - `--enable-decoder-swa-bounded-replay`、`--disable-flashinfer-autotune`、端口 18010
 - **`CUDA_LAUNCH_BLOCKING=""`（2026-10-23 起置空；置空则脚本不导出。原为 `"1"` 仅用于故障归因，实测使解码慢 ~4.2 ms/step，见 `docs/ab-cuda-launch-blocking.md`）**
-- 专家：`LK_GPU_RESIDENT_MOE_LAYERS="0-19"`（20 层全驻留）+ `LK_POOL_SLOTS=128`（后 20 层热池）
+- 专家：`LK_GPU_RESIDENT_MOE_LAYERS="0-19"`（20 层全驻留）+ `LK_POOL_SLOTS=192`（后 20 层热池；单槽 4.4824 MiB ⇒ slab 16.81 GiB/卡）
 - `PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"`（消除权重转换的池化碎片，实测 −7.8 GB/卡）
 - **dspark（spec decode）**：`--speculative-algorithm DSPARK --speculative-dspark-block-size 5 --speculative-attention-mode decode`
 - `LK_VERIFY_RESIDENT=1`（让 6 行 verify 全部走 GPU 热池）
@@ -69,6 +69,19 @@ bash status.sh / bash health.sh                   # 看状态
   `docs/reject-sampling-q-fix.md`、`scripts/test_reject_sampling_q_tolerance.py`、
   `scripts/repro_reject_q_gt1.py`、`docs/figs/reject-sampling-q-tolerance-20261023.png`、`docs/_evidence/q_tolerance/`
 - **未覆盖**：真实 129k vocab 端到端验证未做（本机 softmax 810 次采样 `max(q)=1.000000000`，即触发条件未在本机观测到）。
+
+
+## 已合并的上游修复分支（2026-10-23）
+- 合并 `fix/h100-v41-dspark-verify`（提交 `9591d76e4f`：batch H100 V4.1 DSPARK pool verification with W4A16）
+- 运行时代码改动 6 个文件：新增 `sglang/kernels/ops/moe/lk_verify.py`；改 `fused_moe_triton/layer.py`、`model_executor/model_runner.py`、
+  `runner/decode_cuda_graph_runner.py`、`runner_utils/forward_batch.py`、`models/deepseek_v4_dspark.py`
+- 效果（同 bench 负载，单流）：decode 41.8–46.5 → 372–429 tok/s；accept len 1.93 → 6.00（该负载为逐字重复，属退化）
+  非退化 16 prompt 负载：decode p50 ≈ 141–162 tok/s、accept len p50 ≈ 2.6–2.7
+- 门控：`LK_VERIFY_GEMM`（默认 true）
+
+## HiCache（本轮已开启，未验证）
+- conf 增：`--enable-hierarchical-cache`、`--hicache-ratio 6`
+- 准备与参数语义见 `docs/hicache-prep.md`（DSV4 拒绝 `--hicache-size`，必须显式 ratio）
 
 ## 目录
 - `scripts/` 启动/停止/状态/健康检查 + 压测脚本（`bench256_streams.py` 等）

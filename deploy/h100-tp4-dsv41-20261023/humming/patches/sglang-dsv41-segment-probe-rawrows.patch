@@ -1,0 +1,62 @@
+--- a/sglang/srt/utils/dsv41_segment_probe.py
++++ b/sglang/srt/utils/dsv41_segment_probe.py
+@@ -67,6 +67,7 @@
+ _ENV_SLOTS = "SGLANG_DSV41_PROBE_SLOTS"
+ _ENV_OUT = "SGLANG_DSV41_PROBE_OUT"
+ _ENV_MAXSAMP = "SGLANG_DSV41_PROBE_MAXSAMP"
++_ENV_RAW = "SGLANG_DSV41_PROBE_RAW"  # [seg-probe-raw] per-step rows in the window line
+ 
+ #: grep-able marker stamped by every patched site and every printed line.
+ MARK = "[seg-probe]"
+@@ -87,6 +88,18 @@
+         return default
+ 
+ 
++def _raw_rows_enabled() -> bool:
++    # [seg-probe-raw] SGLANG_DSV41_PROBE_RAW=1 adds the per-step (per-row) values of
++    # this window to the window record, so a caller can compute per-step p50/p95 over
++    # any sub-interval of the run without shrinking the readout window (the sync
++    # cadence, and therefore the measured object, is unchanged).  Default OFF:
++    # the window record is byte-identical to the unextended probe.
++    try:
++        return _truthy(os.environ.get(_ENV_RAW, ""))
++    except Exception:
++        return False
++
++
+ def _quantile(sorted_vals, q: float) -> float:
+     if not sorted_vals:
+         return float("nan")
+@@ -420,6 +433,11 @@
+                     "capture_alloc": chan.capture_alloc,
+                     "seg": agg,
+                 }
++                if _raw_rows_enabled():  # [seg-probe-raw] per-step sums of this window
++                    tick_rows[cname]["raw_sum"] = {
++                        name: [round(float(s), 4) for s, _ in items]
++                        for name, items in agg.items()
++                    }
+ 
+         eager_rows: dict[str, dict] = {}
+         for name, pool in self._e.items():
+@@ -440,6 +458,8 @@
+                     "mean": round(statistics.fmean(vals), 4),
+                     "max": round(max(vals), 4),
+                 }
++                if _raw_rows_enabled():  # [seg-probe-raw] per-step values of this window
++                    eager_rows[name]["raw"] = [round(float(v), 4) for v in vals]
+ 
+         row = {
+             "win": self._win,
+@@ -602,6 +622,11 @@
+         not probe._tick_off,
+         probe.out_path,
+     )
++    if _raw_rows_enabled():  # [seg-probe-raw]
++        logger.warning(
++            "[seg-probe-raw] per-step window rows ON pid=%d (SGLANG_DSV41_PROBE_RAW=1)",
++            os.getpid(),
++        )
+     _install_exit_hooks(probe)
+     return probe
+ 

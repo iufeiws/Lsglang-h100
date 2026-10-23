@@ -1,0 +1,541 @@
+"""DSV4.1 **accept-trace probe** (gated, default OFF).  ``[accept-trace]``
+
+Purpose
+-------
+Record, for every dspark **verify step** of this Lsglang DSV4.1 deployment, one
+row per request (batch row) carrying:
+
+* the **target top-1 token id** of every verify row (``argmax`` over the full
+  vocab of ``logits_output.next_token_logits``),
+* the **draft-proposed token id** of every candidate slot
+  (``verify_ids_2d`` = ``[current token, gamma draft tokens]``),
+* the **accept outcome** the engine actually used
+  (``correct_len`` / ``cap_trim_lens`` / ``commit_lens`` / ``bonus``),
+* the leading greedy-match length (``glen``) computed from
+  ``candidates[:, 1:] == target_predict[:, :-1]`` (the documented DFlash greedy
+  verify rule), so "which slot is the first mismatch" and "was that slot
+  accepted" are both answerable,
+* optionally (first ``TOPK_STEPS`` steps only) the **top-k logits/ids** of the
+  target row and of the draft row at the first-mismatch position.
+
+Gate
+----
+``SGLANG_DSV41_PROBE_ACCEPT_TRACE=1`` -> probe on.
+Unset / ``0`` / anything else -> probe off: the single call site
+(``DsparkStepObservers.observe_verify_step``) calls
+:meth:`AcceptTrace.maybe_observe`, which returns on its first statement.  No
+tensor, no kernel, no sync, no file, no print, no CUDA call.  Call-site cost
+when off is one Python call + one ``bool`` test (~1 us/step, <0.01% of a 44 ms
+step).
+
+Tunables (read only when the probe is on)
+-----------------------------------------
+``SGLANG_DSV41_PROBE_ACCEPT_EVERY``      steps per readout window (default 20)
+``SGLANG_DSV41_PROBE_ACCEPT_MAXBS``      ring batch cap (default 16)
+``SGLANG_DSV41_PROBE_ACCEPT_TOPK``       k for the logits dump (default 8; 0=off)
+``SGLANG_DSV41_PROBE_ACCEPT_TOPK_STEPS`` steps that carry the logits dump
+                                         (default 24; 0 = unlimited)
+``SGLANG_DSV41_PROBE_ACCEPT_RANK``       comma list of TP ranks that dump
+                                         (default empty = all ranks)
+``SGLANG_DSV41_PROBE_ACCEPT_OUT``        jsonl path template, may contain
+                                         ``{pid}`` / ``{rank}``
+                                         (default ``<dir>/dsv41-acctrace.{pid}.r{rank}.jsonl``)
+``SGLANG_DSV41_PROBE_ACCEPT_DIR``        directory for the default path
+                                         (default /mnt/.../Lsglang/logs)
+
+Non-intrusiveness
+-----------------
+* **No per-step host sync**: every per-step operation is an asynchronous
+  device kernel writing into pre-allocated ring buffers; values reach the host
+  only in :meth:`AcceptTrace._flush`, which runs once per ``EVERY`` steps and
+  does exactly one ``torch.cuda.synchronize()`` + one D2H of the whole ring.
+* **Read-only**: the probe never writes to an engine tensor, never allocates
+  inside a CUDA graph capture, never touches the RNG, never changes a stream.
+* Any exception inside the probe is caught and counted; a probe bug cannot
+  take the engine down and cannot change a token.
+
+Calibre of every recorded number
+--------------------------------
+* ``acc`` = ``correct_len`` as produced by the engine's accept path:
+  ``AcceptGreedy`` when the batch is all-greedy (top_k<=1), otherwise
+  ``AcceptSampling`` (rejection sampler) -- the same tensor that feeds
+  ``commit_lens`` and therefore the server's ``accept len`` log line.
+* ``glen`` = number of leading draft slots that match the target argmax under
+  the greedy rule; equals ``acc`` only when the engine took the greedy path.
+* rows per step = ``bs * verify_num_draft_tokens`` (6 in this deployment;
+  static ragged-verify mode => no ragged trimming, ``layout`` is None).
+"""
+
+from __future__ import annotations
+
+import atexit
+import json
+import os
+import time
+
+import torch
+
+MARK = "[accept-trace]"
+_DEFAULT_DIR = "/mnt/SSD01/models/.llm-env/Lsglang/logs"
+_TRUE = {"1", "true", "on", "yes", "y", "t"}
+
+
+def _flag(name: str, default: bool = False) -> bool:
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return v.strip().lower() in _TRUE
+
+
+def _int(name: str, default: int) -> int:
+    v = os.environ.get(name)
+    if v is None or v.strip() == "":
+        return default
+    try:
+        return int(v)
+    except ValueError:
+        return default
+
+
+class AcceptTrace:
+    """Per-step, per-request, per-slot accept trace (gated, default OFF)."""
+
+    def __init__(self) -> None:
+        self.enabled = _flag("SGLANG_DSV41_PROBE_ACCEPT_TRACE", False)
+        if not self.enabled:
+            return
+        self.every = max(1, _int("SGLANG_DSV41_PROBE_ACCEPT_EVERY", 20))
+        self.maxbs = max(1, _int("SGLANG_DSV41_PROBE_ACCEPT_MAXBS", 16))
+        self.topk = max(0, _int("SGLANG_DSV41_PROBE_ACCEPT_TOPK", 8))
+        self.topk_steps = max(0, _int("SGLANG_DSV41_PROBE_ACCEPT_TOPK_STEPS", 24))
+        raw_rank = os.environ.get("SGLANG_DSV41_PROBE_ACCEPT_RANK", "").strip()
+        self.ranks = (
+            {int(x) for x in raw_rank.split(",") if x.strip()} if raw_rank else None
+        )
+        self.out_template = os.environ.get("SGLANG_DSV41_PROBE_ACCEPT_OUT", "").strip()
+        self.out_dir = os.environ.get("SGLANG_DSV41_PROBE_ACCEPT_DIR", _DEFAULT_DIR)
+
+        self._bufs = None
+        self._nslots = None
+        self._slot = 0
+        self._step_ct = 0
+        self._flush_ct = 0
+        self._rids = {}
+        self._rank = -1
+        self._fh = None
+        self._cum = {}
+        self._counter_keys = (
+            "steps",
+            "records",
+            "skip_no_logits",
+            "skip_bs",
+            "skip_shape",
+            "glen_eq_acc",
+            "glen_eq_acc_tot",
+            "bonus_ok",
+            "bonus_tot",
+            "draft_top1_ok",
+            "draft_top1_tot",
+            "topk_steps_done",
+            "errors",
+        )
+        atexit.register(self._atexit)
+
+    # ------------------------------------------------------------------ utils
+
+    @staticmethod
+    def _bump(d, k, n=1):
+        d[k] = d.get(k, 0) + n
+
+    def _log(self, msg: str) -> None:
+        print(f"{MARK} {msg}", flush=True)
+
+    def _open(self, rank: int) -> None:
+        if self.out_template:
+            path = self.out_template.format(pid=os.getpid(), rank=rank)
+        else:
+            path = os.path.join(self.out_dir, f"dsv41-acctrace.{os.getpid()}.r{rank}.jsonl")
+        d = os.path.dirname(path)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        self._fh = open(path, "a", buffering=1)
+        self._pids = {}
+        self._log(
+            f"on pid={os.getpid()} tp_rank={rank} out={path} every={self.every} "
+            f"maxbs={self.maxbs} topk={self.topk} topk_steps={self.topk_steps}"
+        )
+
+    # -------------------------------------------------------------- buffers
+
+    def _ensure(self, device, nslots: int) -> None:
+        if self._bufs is not None:
+            return
+        N, CAP, K = self.every, self.maxbs, max(self.topk, 1)
+        n = N * CAP
+        d = device
+
+        def i32(*s):
+            return torch.zeros((n,) + s, dtype=torch.int32, device=d)
+
+        def i64(*s):
+            return torch.zeros((n,) + s, dtype=torch.int64, device=d)
+
+        def f32(*s):
+            return torch.zeros((n,) + s, dtype=torch.float32, device=d)
+
+        self._bufs = {
+            "device": d,
+            "cand": i64(nslots),
+            "tgt": i64(nslots),
+            "glen": i32(),
+            "acc": i32(),
+            "trim": i32(),
+            "commit": i32(),
+            "rpi": i64(),
+            "step": i32(),
+            "ttmp": f32(),
+            "dtmp": f32(),
+            "tk_row": i32(),
+            "tk_ids": torch.full((n, K), -1, dtype=torch.int32, device=d),
+            "tk_vals": f32(K),
+            "dval": f32(),
+            "drank": i32(),
+            "dt_ids": torch.full((n, K), -1, dtype=torch.int32, device=d),
+            "dt_vals": f32(K),
+            "bs": torch.zeros(N, dtype=torch.int32, device=d),
+            "sstep": torch.zeros(N, dtype=torch.int32, device=d),
+            "have": torch.zeros(N, dtype=torch.int32, device=d),
+            "c_glen_eq_acc": torch.zeros((), dtype=torch.int64, device=d),
+            "c_glen_eq_acc_tot": torch.zeros((), dtype=torch.int64, device=d),
+            "c_bonus_ok": torch.zeros((), dtype=torch.int64, device=d),
+            "c_bonus_tot": torch.zeros((), dtype=torch.int64, device=d),
+            "c_draft_ok": torch.zeros((), dtype=torch.int64, device=d),
+            "c_draft_tot": torch.zeros((), dtype=torch.int64, device=d),
+        }
+        self._nslots = int(nslots)
+        self._log(
+            f"buffers pid={os.getpid()} tp_rank={self._rank} device={d} "
+            f"ring_steps={N} cap_bs={CAP} nslots={nslots} topk={self.topk}"
+        )
+
+    # ------------------------------------------------------------ hot path
+
+    def maybe_observe(
+        self,
+        *,
+        tp_rank: int,
+        forward_ct: int,
+        rids,
+        bs: int,
+        verify_ids_2d,
+        target_logits,
+        draft_block,
+        sampling_info,
+        correct_len,
+        cap_trim_lens,
+        bonus,
+        commit_lens,
+        req_pool_indices,
+        layout=None,
+    ) -> None:
+        if not self.enabled:  # <- everything below is gated
+            return
+        try:
+            self._observe(
+                tp_rank=tp_rank,
+                forward_ct=forward_ct,
+                rids=rids,
+                bs=bs,
+                verify_ids_2d=verify_ids_2d,
+                target_logits=target_logits,
+                draft_block=draft_block,
+                sampling_info=sampling_info,
+                correct_len=correct_len,
+                cap_trim_lens=cap_trim_lens,
+                bonus=bonus,
+                commit_lens=commit_lens,
+                req_pool_indices=req_pool_indices,
+            )
+        except Exception as exc:  # never break the engine
+            self._bump(self._cum, "errors")
+            if self._cum["errors"] <= 5:
+                self._log(f"ERROR in probe: {type(exc).__name__}: {exc}")
+
+    def _observe(
+        self,
+        *,
+        tp_rank,
+        forward_ct,
+        rids,
+        bs,
+        verify_ids_2d,
+        target_logits,
+        draft_block,
+        sampling_info,
+        correct_len,
+        cap_trim_lens,
+        bonus,
+        commit_lens,
+        req_pool_indices,
+    ) -> None:
+        rank = int(tp_rank)
+        if self.ranks is not None and rank not in self.ranks:
+            self._bump(self._cum, "steps")
+            return
+        self._rank = rank
+        if self._fh is None:
+            self._open(rank)
+        if target_logits is None or verify_ids_2d is None or bs <= 0:
+            self._bump(self._cum, "skip_no_logits")
+            return
+        if bs > self.maxbs:
+            self._bump(self._cum, "skip_bs")
+            return
+        try:
+            nslots = int(verify_ids_2d.shape[1])
+        except Exception:
+            self._bump(self._cum, "skip_shape")
+            return
+        if verify_ids_2d.dim() != 2 or target_logits.dim() != 2:
+            self._bump(self._cum, "skip_shape")
+            return
+        # verify_ids_2d: (bs, nslots) = [current token, gamma draft tokens]
+        # target_logits: (bs * nslots, vocab)  -- one logits row per verify row
+        if int(verify_ids_2d.shape[0]) != bs:
+            self._bump(self._cum, "skip_shape")
+            return
+        if int(target_logits.shape[0]) != bs * nslots:
+            self._bump(self._cum, "skip_shape")
+            return
+
+        self._ensure(target_logits.device, nslots)
+        B = self._bufs
+        nsl = self._nslots
+        step = self._step_ct
+        self._step_ct += 1
+        slot = self._slot
+        base = slot * self.maxbs
+        hi = base + bs
+
+        tl = target_logits
+        t3 = tl.view(bs, nsl, -1)
+        tgt_v = B["tgt"][base:hi]
+        torch.argmax(t3, dim=2, out=tgt_v)
+        cand_v = B["cand"][base:hi]
+        cand_v.copy_(verify_ids_2d.view(bs, nsl))
+
+        eq = cand_v[:, 1:] == tgt_v[:, :-1]
+        glen = eq.to(torch.int32).cumprod(dim=1).sum(dim=1).to(torch.int32)
+        B["glen"][base:hi].copy_(glen)
+        B["acc"][base:hi].copy_(correct_len.view(-1)[:bs])
+        B["trim"][base:hi].copy_(cap_trim_lens.view(-1)[:bs])
+        B["commit"][base:hi].copy_(commit_lens.view(-1)[:bs])
+        B["rpi"][base:hi].copy_(req_pool_indices.view(-1)[:bs])
+        B["step"][base:hi].fill_(int(forward_ct))
+
+        temps = getattr(sampling_info, "temperatures", None) if sampling_info is not None else None
+        if temps is not None and temps.numel() > 0:
+            if temps.numel() == bs:
+                B["ttmp"][base:hi].copy_(temps.float().view(-1))
+            elif temps.numel() == bs * nsl:
+                B["ttmp"][base:hi].copy_(temps.float().view(bs, nsl)[:, 0])
+        dtemps = getattr(draft_block, "temperatures", None) if draft_block is not None else None
+        if dtemps is not None and dtemps.numel() > 0:
+            if dtemps.numel() == bs:
+                B["dtmp"][base:hi].copy_(dtemps.float().view(-1))
+            elif dtemps.numel() == bs * (nsl - 1):
+                B["dtmp"][base:hi].copy_(dtemps.float().view(bs, nsl - 1)[:, 0])
+            else:
+                B["dtmp"][base:hi].copy_(dtemps.float().view(-1)[:bs])
+
+        all_greedy = sampling_info is None or bool(getattr(sampling_info, "is_all_greedy", False))
+        if all_greedy:
+            same = (glen == B["acc"][base:hi].view(-1)).to(torch.int64)
+            B["c_glen_eq_acc"] += same.sum()
+            B["c_glen_eq_acc_tot"] += bs
+            if bonus is not None:
+                ridx = glen.to(torch.int64).clamp(max=nsl - 1).view(bs, 1)
+                exp = tgt_v.gather(1, ridx).view(-1)
+                ok = (exp == bonus.view(-1).to(torch.int64)).to(torch.int64)
+                B["c_bonus_ok"] += ok.sum()
+                B["c_bonus_tot"] += bs
+
+        if self.topk > 0 and (self.topk_steps == 0 or step < self.topk_steps):
+            try:
+                self._dump_topk(tl, cand_v, glen, draft_block, base, bs, nsl)
+                self._bump(self._cum, "topk_steps_done")
+            except Exception as exc:
+                self._bump(self._cum, "errors")
+                if self._cum["errors"] <= 5:
+                    self._log(f"ERROR topk: {type(exc).__name__}: {exc}")
+
+        B["bs"][slot] = int(bs)
+        B["sstep"][slot] = int(forward_ct)
+        B["have"][slot] = 1
+        self._rids[slot] = tuple(rids) if rids is not None else ()
+        self._bump(self._cum, "steps")
+        self._bump(self._cum, "records", bs)
+
+        self._slot += 1
+        if self._slot >= self.every:
+            self._flush()
+
+    def _dump_topk(self, tl, cand_v, glen, draft_block, base, bs, nsl) -> None:
+        B = self._bufs
+        K = self.topk
+        V = int(tl.shape[-1])
+        idx = torch.arange(bs, device=tl.device)
+        r_g = glen.to(torch.int64).clamp(max=nsl - 2)  # row of the first mismatched slot
+        lin = idx * nsl + r_g
+        sub = tl.index_select(0, lin)  # (bs, V) target row
+        tv, ti = torch.topk(sub, K, dim=1)
+        B["tk_row"][base:base + bs].copy_(r_g.to(torch.int32))
+        B["tk_ids"][base:base + bs].copy_(ti.to(torch.int32))
+        B["tk_vals"][base:base + bs].copy_(tv)
+        dslot = (r_g + 1).clamp(max=nsl - 1).view(bs, 1)
+        dtok = cand_v.gather(1, dslot).view(-1).to(torch.int64)
+        dval = sub.gather(1, dtok.view(bs, 1)).view(-1)
+        drank = (sub > dval.view(bs, 1)).sum(dim=1).to(torch.int32)
+        B["dval"][base:base + bs].copy_(dval)
+        B["drank"][base:base + bs].copy_(drank)
+
+        cl = getattr(draft_block, "corrected_logits", None) if draft_block is not None else None
+        if cl is None or cl.dim() != 3 or int(cl.shape[0]) < bs or int(cl.shape[2]) != V:
+            return
+        g = int(cl.shape[1])
+        rr = r_g.clamp(max=g - 1)
+        lin2 = idx * g + rr
+        subd = cl.reshape(bs * g, V).index_select(0, lin2)
+        dv, di = torch.topk(subd, K, dim=1)
+        B["dt_ids"][base:base + bs].copy_(di.to(torch.int32))
+        B["dt_vals"][base:base + bs].copy_(dv)
+        ok = (di[:, 0].to(torch.int64) == dtok).to(torch.int64)
+        B["c_draft_ok"] += ok.sum()
+        B["c_draft_tot"] += bs
+
+    # ---------------------------------------------------------------- flush
+
+    def _flush(self) -> None:
+        if self._bufs is None:
+            self._slot = 0
+            return
+        B = self._bufs
+        torch.cuda.synchronize()  # exactly one sync per window (never per step)
+        h = {}
+        for k, v in B.items():
+            if k == "device":
+                continue
+            if v.dim() == 0:
+                h[k] = int(v.item())
+            else:
+                h[k] = v.cpu().tolist()
+        nsl = self._nslots
+        CAP = self.maxbs
+        steps = []
+        for s in range(self.every):
+            if not h["have"][s]:
+                continue
+            b = int(h["bs"][s])
+            rids = list(self._rids.get(s, ()))
+            recs = []
+            for i in range(b):
+                j = s * CAP + i
+                recs.append(
+                    {
+                        "i": i,
+                        "rid": rids[i] if i < len(rids) else None,
+                        "rpi": h["rpi"][j],
+                        "cand": h["cand"][j],
+                        "tgt": h["tgt"][j],
+                        "glen": h["glen"][j],
+                        "acc": h["acc"][j],
+                        "trim": h["trim"][j],
+                        "commit": h["commit"][j],
+                        "ttmp": round(h["ttmp"][j], 6),
+                        "dtmp": round(h["dtmp"][j], 6),
+                        "tk_row": h["tk_row"][j],
+                        "tk_ids": h["tk_ids"][j],
+                        "tk_vals": [round(x, 5) for x in h["tk_vals"][j]],
+                        "dval": round(h["dval"][j], 5),
+                        "drank": h["drank"][j],
+                        "dt_ids": h["dt_ids"][j],
+                        "dt_vals": [round(x, 5) for x in h["dt_vals"][j]],
+                    }
+                )
+            steps.append({"step": int(h["sstep"][s]), "bs": b, "records": recs})
+
+        cnt = {
+            "glen_eq_acc": h["c_glen_eq_acc"],
+            "glen_eq_acc_tot": h["c_glen_eq_acc_tot"],
+            "bonus_ok": h["c_bonus_ok"],
+            "bonus_tot": h["c_bonus_tot"],
+            "draft_top1_ok": h["c_draft_ok"],
+            "draft_top1_tot": h["c_draft_tot"],
+        }
+        rec = {
+            "kind": "flush",
+            "ts": time.time(),
+            "pid": os.getpid(),
+            "tp_rank": self._rank,
+            "flush": self._flush_ct,
+            "every": self.every,
+            "n_slots": nsl,
+            "n_steps": len(steps),
+            "n_records": sum(len(s["records"]) for s in steps),
+            "counters": cnt,
+            "steps": steps,
+        }
+        if self._fh is not None:
+            self._fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
+            self._fh.flush()
+        self._log(
+            f"flush={self._flush_ct} pid={os.getpid()} rank={self._rank} "
+            f"steps={rec['n_steps']} records={rec['n_records']} "
+            f"glen==acc {cnt['glen_eq_acc']}/{cnt['glen_eq_acc_tot']} "
+            f"bonus_ok {cnt['bonus_ok']}/{cnt['bonus_tot']}"
+        )
+        self._flush_ct += 1
+        self._slot = 0
+        self._rids.clear()
+        B["have"].zero_()
+        for k in (
+            "c_glen_eq_acc",
+            "c_glen_eq_acc_tot",
+            "c_bonus_ok",
+            "c_bonus_tot",
+            "c_draft_ok",
+            "c_draft_tot",
+        ):
+            B[k].zero_()
+
+    # --------------------------------------------------------------- exit
+
+    def _atexit(self) -> None:
+        if not self.enabled:
+            return
+        try:
+            if self._slot > 0:
+                self._flush()
+            cum = dict(self._cum)
+            rec = {
+                "kind": "summary",
+                "ts": time.time(),
+                "pid": os.getpid(),
+                "tp_rank": self._rank,
+                "tunables": {
+                    "every": self.every,
+                    "maxbs": self.maxbs,
+                    "topk": self.topk,
+                    "topk_steps": self.topk_steps,
+                },
+                "cumulative": cum,
+            }
+            if self._fh is not None:
+                self._fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
+                self._fh.flush()
+            self._log(f"summary pid={os.getpid()} rank={self._rank} {json.dumps(cum)}")
+        except Exception:
+            pass
+
+
+dsv41_accept_trace = AcceptTrace()

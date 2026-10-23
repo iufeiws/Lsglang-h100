@@ -1,0 +1,59 @@
+--- a/sglang/srt/speculative/dspark_components/dspark_observability.py	2026-10-22 13:32:56.612438439 +0800
++++ b/sglang/srt/speculative/dspark_components/dspark_observability.py	2026-10-23 15:51:43.198083485 +0800
+@@ -25,6 +25,22 @@
+     verify_logits_adjustments_are_noop,
+ )
+ 
++# [accept-trace] gated per-slot accept trace; default OFF, no behaviour change when off.
++# Gate: SGLANG_DSV41_PROBE_ACCEPT_TRACE=1  (module: sglang/srt/utils/dsv41_accept_trace.py)
++try:
++    from sglang.srt.utils.dsv41_accept_trace import (
++        dsv41_accept_trace as _dsv41_accept_trace,
++    )
++except Exception:  # pragma: no cover
++
++    class _NoopAcceptTrace:  # [accept-trace]
++        enabled = False
++
++        def maybe_observe(self, **_kw) -> None:
++            return None
++
++    _dsv41_accept_trace = _NoopAcceptTrace()
++
+ logger = logging.getLogger(__name__)
+ 
+ _NULL_SEGMENT = nullcontext()
+@@ -743,6 +759,7 @@
+         self._gamma = int(gamma)
+         self._verify_num_draft_tokens = int(verify_num_draft_tokens)
+         self._simulate_acc_len = float(simulate_acc_len)
++        self._tp_rank = int(tp_rank)  # [accept-trace]
+ 
+         self._confidence_probe = ConfidenceMetricsProbe(
+             gamma=gamma,
+@@ -927,6 +944,25 @@
+                     rids=[req.rid for req in reqs],
+                 )
+             )
++        # [accept-trace] one call per verify step.  Returns on its first statement
++        # unless SGLANG_DSV41_PROBE_ACCEPT_TRACE is set: no tensor, no kernel,
++        # no sync, no file, no print when off.
++        _dsv41_accept_trace.maybe_observe(
++            tp_rank=self._tp_rank,
++            forward_ct=forward_ct,
++            rids=[req.rid for req in reqs],
++            bs=bs,
++            verify_ids_2d=verify_ids_2d,
++            target_logits=target_logits,
++            draft_block=draft_block,
++            sampling_info=sampling_info,
++            correct_len=correct_len,
++            cap_trim_lens=cap_trim_lens,
++            bonus=bonus,
++            commit_lens=commit_lens,
++            req_pool_indices=req_pool_indices,
++            layout=layout,
++        )
+ 
+     def _maybe_record_sts_collect(
+         self,
