@@ -290,9 +290,12 @@ class DSparkAttention(MqaAttentionBase):
                 device=hidden_states.device,
             )
         elif self.n_local_heads < _PAD_NUM_HEADS:
-            q_padded = hidden_states.new_empty(
-                hidden_states.shape[0], _PAD_NUM_HEADS, self.head_dim
+            # V4.1's attention kernels read every padded head, just as on
+            # the target path. Never feed allocator residue to the draft.
+            allocate = (
+                hidden_states.new_zeros if self.is_dsv41 else hidden_states.new_empty
             )
+            q_padded = allocate(hidden_states.shape[0], _PAD_NUM_HEADS, self.head_dim)
             q_out = q_padded[:, : self.n_local_heads, :]
 
         if enable_multi_stream:
@@ -323,7 +326,7 @@ class DSparkAttention(MqaAttentionBase):
 
         if q_padded is not None:
             q = q_padded
-        attn_sink = self._local_attn_sink()
+        attn_sink = self._local_attn_sink(q.shape[1])
 
         o = attn_backend.forward(
             q=q,

@@ -81,6 +81,7 @@ from sglang.srt.model_executor.runner_backend_utils.tc_piecewise_cuda_graph impo
     is_in_tc_piecewise_cuda_graph,
 )
 from sglang.srt.model_loader.weight_utils import narrow_padded_param_and_loaded_weight
+from sglang.srt.model_executor.runner_utils.forward_batch import get_verify_rows_per_request
 from sglang.srt.runtime_context import (
     get_exec,
     get_global_dwdp_manager,
@@ -114,6 +115,7 @@ if is_lk_moe_feature_enabled():
     import triton
     from lk_moe._hybrid_gemv_kernel import (
         gather_rows, slot_table_fill, moe_gateup, reduce_gate, moe_down, reduce_down)
+    from sglang.kernels.ops.moe.lk_verify import launch as launch_lk_verify
 else:
     logger.error("Failed to import lk_moe module or LK_MOE_HYBRID_ENABLED is not set to 1, lk::MOE implementation will not be available")
 
@@ -2461,6 +2463,9 @@ class FusedMoE(torch.nn.Module):
             FusedMoE._pool_k = k
             FusedMoE._pool_decode_cap = cap
             FusedMoE.pool_hbuf = torch.zeros((rows, 2 * I), dtype=torch.float32, device=dev)
+            # Reuse storage on the same pool stream; GEMV still sees FP32,
+            # while verify writes/reads compact BF16 post-SiLU activations.
+            FusedMoE.pool_verify_activated = FusedMoE.pool_hbuf.view(torch.bfloat16)
             FusedMoE.pool_gout = torch.zeros(
                 (cap * FusedMoE._pool_verify_rows_mult, H), dtype=torch.float32, device=dev)
             FusedMoE.pool_slot_tab = torch.full((rows,), -1, dtype=torch.int32, device=dev)
@@ -2475,6 +2480,7 @@ class FusedMoE(torch.nn.Module):
             FusedMoE.pool_hpart = torch.zeros((NGK, rows, 2 * I), dtype=torch.float32, device=dev)
             FusedMoE.pool_gout_part = torch.zeros((rows, H), dtype=torch.float32, device=dev)
         self._pool_layer_info = dict(
+            layer=self.layer_id,
             snapshot_addr=info["snapshot_addr"],
             weight_addr=info["weight_addr"], scale_addr=info["scale_addr"],
             slot_bytes=info["slot_weight_bytes"],
@@ -2484,6 +2490,26 @@ class FusedMoE(torch.nn.Module):
             H=H, I=I, k=k, NB_GATEUP=NB_GATEUP, NB_DOWN=NB_DOWN,
             NGK=NGK, KS=KS, ITERS=ITERS, **caps,
         )
+        # Keep the original GEMV on decode and other hardware/formats. The
+        # Hopper verify path reuses the same frozen slot table and buffers.
+        self._pool_verify_gemm = (
+            torch.cuda.get_device_capability()[0] == 9
+            and caps["format"] == "mxfp4"
+            and caps["scale_group"] == 32
+            and PK == 2 and SSZ == 1
+            and caps["has_gate"] and caps["activation"] == 0
+            and H % 32 == 0 and I % 32 == 0
+            and get_bool_env_var("LK_VERIFY_GEMM", default="true")
+        )
+        if (self._pool_verify_gemm
+                and get_exec().moe.flashinfer_mxfp4_moe_precision == "fp8"
+                and not getattr(FusedMoE, "_pool_verify_fp8_warned", False)):
+            logger.warning(
+                "FlashInfer MXFP4 precision=fp8 selects Humming W4A8 for GPU-resident "
+                "layers only. LK pool verify GEMM uses W4A16 (BF16 operands, FP32 "
+                "accumulation); CPU misses and ordinary pool GEMV are unchanged."
+            )
+            FusedMoE._pool_verify_fp8_warned = True
         self.lk_moe.pool_gpu_report(True)
 
     def _pool_decode_launch(self, hidden_states, topk_ids, topk_weights,
@@ -2549,53 +2575,119 @@ class FusedMoE(torch.nn.Module):
             slot_table_fill[(1,)](
                 gathered_ids, geo["snapshot_addr"], slot_tab, n_slots,
                 BLOCK=triton.next_power_of_2(n_slots))
-            gout_part.zero_()
-            moe_gateup[(n_slots, geo["NB_GATEUP"], geo["NGK"])](
-                gathered_ids, slot_tab,
-                geo["weight_addr"][0], geo["scale_addr"][0],
-                geo["weight_addr"][1], geo["scale_addr"][1], geo["gateup_gds"],
-                hpart, hidden_states, n_slots, k, rows_per_token,
-                GDS_COLS=2 if geo["has_gate"] else 1,
-                NCOL=I, K_PER_BLOCK=H // PK, SCALE_GROUPS_BLK=H // SG,
-                SLOT_BYTES=geo["slot_bytes"][0],
-                SLOT_SCALE_BYTES=geo["slot_scale_bytes"][0],
-                HIDDEN=H, ITERS=geo["ITERS"], SCALE_GROUP=SG,
-                FORMAT=geo["format"], FORMAT_PACKED_K=PK, SCALE_SIZE=SSZ,
-                HAS_GATE=geo["has_gate"], ACTIVATION=geo["activation"],
-                ALPHA=geo["swiglu_alpha"], LIMIT=geo["swiglu_limit"],
-                KS=geo["KS"], NGK=geo["NGK"])
-            reduce_gate[(triton.cdiv(n_slots * 2 * I, 1024),)](
-                hpart, hbuf, n_slots * 2 * I, NGK=geo["NGK"], BLOCK=1024)
-            moe_down[(n_slots, geo["NB_DOWN"])](
-                gathered_ids, slot_tab, gathered_weights,
-                geo["weight_addr"][2], geo["scale_addr"][2], geo["down_gds"],
-                hbuf, gout_part, n_slots,
-                NCOL=H, N_PARTIAL=I, K_PER_BLOCK=I // PK,
-                SCALE_GROUPS_BLK=I // SG,
-                SLOT_BYTES=geo["slot_bytes"][2],
-                SLOT_SCALE_BYTES=geo["slot_scale_bytes"][2],
-                ITERS=geo["ITERS"], SCALE_GROUP=SG,
-                FORMAT=geo["format"], FORMAT_PACKED_K=PK, SCALE_SIZE=SSZ,
-                HAS_GATE=geo["has_gate"], ACTIVATION=geo["activation"],
-                ALPHA=geo["swiglu_alpha"], LIMIT=geo["swiglu_limit"])
-            reduce_down[(triton.cdiv(H, 1024),)](
-                gout_part, gout[:real_tokens], slot_tab, HIDDEN=H,
-                SLOTS_PER_TOKEN=k, BATCH=real_tokens, BLOCK=1024,
-                RESIDENT_ONLY=1)
+            if all_rows and self._pool_verify_gemm:
+                launch_lk_verify(
+                    hidden_states, slot_tab, gathered_weights, geo,
+                    hpart, FusedMoE.pool_verify_activated, gout_part, gout[:real_tokens],
+                )
+            else:
+                self._pool_gemv_launch(
+                    hidden_states, gathered_ids, gathered_weights, slot_tab,
+                    n_slots, real_tokens, rows_per_token,
+                )
         # fence for worker copies: record the pool stream's progress so no
-        # inbound H2D lands before these gemvs finish reading their slots.
+        # inbound H2D lands before these kernels finish reading their slots.
         self.lk_moe.pool_record_aux(FusedMoE.pool_stream.cuda_stream)
+
+    def _pool_gemv_launch(
+        self,
+        hidden_states,
+        gathered_ids,
+        gathered_weights,
+        slot_tab,
+        n_slots,
+        real_tokens,
+        rows_per_token,
+    ):
+        geo = self._pool_layer_info
+        H, I, k = geo["H"], geo["I"], geo["k"]
+        SG, PK = geo["scale_group"], geo["packed_k_per_iter"]
+        SSZ = int(geo.get("scale_size", 1))
+        hpart, hbuf, gout = FusedMoE.pool_hpart, FusedMoE.pool_hbuf, FusedMoE.pool_gout
+        gout_part = FusedMoE.pool_gout_part
+        gout_part.zero_()
+        moe_gateup[(n_slots, geo["NB_GATEUP"], geo["NGK"])](
+            gathered_ids,
+            slot_tab,
+            geo["weight_addr"][0],
+            geo["scale_addr"][0],
+            geo["weight_addr"][1],
+            geo["scale_addr"][1],
+            geo["gateup_gds"],
+            hpart,
+            hidden_states,
+            n_slots,
+            k,
+            rows_per_token,
+            GDS_COLS=2 if geo["has_gate"] else 1,
+            NCOL=I,
+            K_PER_BLOCK=H // PK,
+            SCALE_GROUPS_BLK=H // SG,
+            SLOT_BYTES=geo["slot_bytes"][0],
+            SLOT_SCALE_BYTES=geo["slot_scale_bytes"][0],
+            HIDDEN=H,
+            ITERS=geo["ITERS"],
+            SCALE_GROUP=SG,
+            FORMAT=geo["format"],
+            FORMAT_PACKED_K=PK,
+            SCALE_SIZE=SSZ,
+            HAS_GATE=geo["has_gate"],
+            ACTIVATION=geo["activation"],
+            ALPHA=geo["swiglu_alpha"],
+            LIMIT=geo["swiglu_limit"],
+            KS=geo["KS"],
+            NGK=geo["NGK"],
+        )
+        reduce_gate[(triton.cdiv(n_slots * 2 * I, 1024),)](
+            hpart, hbuf, n_slots * 2 * I, NGK=geo["NGK"], BLOCK=1024
+        )
+        moe_down[(n_slots, geo["NB_DOWN"])](
+            gathered_ids,
+            slot_tab,
+            gathered_weights,
+            geo["weight_addr"][2],
+            geo["scale_addr"][2],
+            geo["down_gds"],
+            hbuf,
+            gout_part,
+            n_slots,
+            NCOL=H,
+            N_PARTIAL=I,
+            K_PER_BLOCK=I // PK,
+            SCALE_GROUPS_BLK=I // SG,
+            SLOT_BYTES=geo["slot_bytes"][2],
+            SLOT_SCALE_BYTES=geo["slot_scale_bytes"][2],
+            ITERS=geo["ITERS"],
+            SCALE_GROUP=SG,
+            FORMAT=geo["format"],
+            FORMAT_PACKED_K=PK,
+            SCALE_SIZE=SSZ,
+            HAS_GATE=geo["has_gate"],
+            ACTIVATION=geo["activation"],
+            ALPHA=geo["swiglu_alpha"],
+            LIMIT=geo["swiglu_limit"],
+        )
+        reduce_down[(triton.cdiv(H, 1024),)](
+            gout_part,
+            gout[:real_tokens],
+            slot_tab,
+            HIDDEN=H,
+            SLOTS_PER_TOKEN=k,
+            BATCH=real_tokens,
+            BLOCK=1024,
+            RESIDENT_ONLY=1,
+        )
 
     def _cpu_decode(self, hidden_states, topk_weights, topk_ids):
         bs = hidden_states.size(0)
 
-        draft_tokens = self.speculative_num_draft_tokens or 1
-        mult = draft_tokens if draft_tokens > 1 else 1
-        rows_per_token = mult if (mult > 1 and bs % mult == 0) else 1
+        rows_per_token = get_verify_rows_per_request(bs)
         real_tokens = bs // rows_per_token
 
-        covered = (self._pool_layer_info is not None
-                 and real_tokens <= FusedMoE._pool_decode_cap)
+        covered = (
+            self._pool_layer_info is not None
+            and real_tokens <= FusedMoE._pool_decode_cap
+        )
 
         if covered:
             self.lk_moe.pool_gpu_report(True)

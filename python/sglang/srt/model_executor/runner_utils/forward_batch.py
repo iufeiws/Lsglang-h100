@@ -11,9 +11,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Current execution batch for eager regions in prefill graphs.
+"""Current execution batch, including eager regions in prefill graphs.
 
-The prefill runner owns this scope. Eager callbacks resolve the batch when
+The model/graph runners own this scope. Eager callbacks resolve the batch when
 executed instead of retaining capture-time request metadata. This state is
 independent of ForwardContext, which selects the attention backend.
 """
@@ -35,6 +35,23 @@ def get_forward_batch() -> "ForwardBatch":
     if batch is None:
         raise RuntimeError("No forward batch is set for this execution")
     return batch
+
+
+def get_verify_rows_per_request(num_rows: int) -> int:
+    """Fixed verify width for MoE, otherwise one independent row per token.
+
+    A decode or draft batch divisible by the configured verify width is NOT
+    a target-verify batch. Compact/ragged verification has no fixed stride.
+    Unknown contexts conservatively compute all rows independently.
+    """
+    batch = _current_batch.get()
+    if batch is None or not batch.forward_mode.is_target_verify():
+        return 1
+    spec = batch.spec_info
+    if spec is None or getattr(spec, "ragged_verify_layout", None) is not None:
+        return 1
+    width = int(getattr(spec, "draft_token_num", 1))
+    return width if width > 1 and num_rows % width == 0 else 1
 
 
 @contextmanager
