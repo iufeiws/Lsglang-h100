@@ -1,0 +1,64 @@
+--- a/sglang/srt/models/deepseek_v4.py
++++ b/sglang/srt/models/deepseek_v4.py
+@@ -5551,30 +5551,44 @@
+         # "capturing", so a capture-mode prewarm leaves the cold kernel to fire
+         # inside the real capture and deadlock the group. Eager forwards do the
+         # actual first launch here, outside any graph.
++        import os
++
+         with nullcontext():
+             # These forwards are DECODE-shaped but deliberately run OUTSIDE the
+             # capture region, so MoE's capture branch cannot claim them; flag
+             # them so a non-resident layer takes the decode entry point instead
+             # of lk_moe's prefill entry point. Per-process global, reset in
+             # finally: capture and all later forwards are unaffected.
+-            FusedMoE._eager_decode_prewarm = True
+-            try:
+-                for bs in capture_bs:
+-                    runner._dummy_run(
+-                        batch_size=bs,
+-                        buffers=buffers,
+-                        forward_mode_override=ForwardMode.DECODE,
+-                    )
+-                    n_fwd += 1
+-                if is_spec:
+-                    for bs in verify_bs:
+-                        # default path selects TARGET_VERIFY (num_tokens = bs * block),
+-                        # exercising make_forward_metadata_from_raw_verify on device.
+-                        runner._dummy_run(batch_size=bs, buffers=buffers)
++            if os.environ.get("SGLANG_DSV41_SKIP_CAPTURE_PREWARM", "0") == "1":
++                # Escape hatch: this eager pre-capture warmup drives a DECODE
++                # dummy through every subsystem outside any graph. On this stack
++                # several of those paths fault on such a forward, and the real
++                # capture -- which runs under capture mode and therefore takes
++                # different branches -- does not need it to have run.
++                logger.warning(
++                    "[prewarm-skip] SGLANG_DSV41_SKIP_CAPTURE_PREWARM=1: "
++                    "skipped the eager pre-capture warmup (N forwards)"
++                )
++                n_fwd = 0
++            else:
++                FusedMoE._eager_decode_prewarm = True
++                try:
++                    for bs in capture_bs:
++                        runner._dummy_run(
++                            batch_size=bs,
++                            buffers=buffers,
++                            forward_mode_override=ForwardMode.DECODE,
++                        )
+                         n_fwd += 1
+-                torch.cuda.synchronize()
+-            finally:
+-                FusedMoE._eager_decode_prewarm = False
++                    if is_spec:
++                        for bs in verify_bs:
++                            # default path selects TARGET_VERIFY (num_tokens = bs * block),
++                            # exercising make_forward_metadata_from_raw_verify on device.
++                            runner._dummy_run(batch_size=bs, buffers=buffers)
++                            n_fwd += 1
++                    torch.cuda.synchronize()
++                finally:
++                    FusedMoE._eager_decode_prewarm = False
+ 
+         if world > 1:
+             dist.barrier(group=get_parallel().tp_group.cpu_group)

@@ -1,0 +1,36 @@
+--- a/flashinfer/fused_moe/prepare.py
++++ b/flashinfer/fused_moe/prepare.py
+@@ -234,12 +234,27 @@
+         )
+ 
+     lut = _humming_mxfp4_w4a8_rewrite_lut_cpu().to(weight.device)
+-    lo = weight & 0x0F
+-    hi = (weight >> 4) & 0x0F
+-    fp4_codes = torch.stack([lo, hi], dim=-1).reshape(*weight.shape[:-1], -1)
+-    delta = delta_scale_offsets.repeat_interleave(32, dim=-1).to(torch.long)
+-    rewritten = lut[delta, fp4_codes.to(torch.long)]
+-    processed = rewritten[..., 0::2] | (rewritten[..., 1::2] << 4)
++    num_experts = weight.shape[0]
++    processed = torch.empty_like(weight)
++    # The LUT gather materializes one K-wide index tensor per expert. Building it
++    # for the whole tensor at once allocates num_experts * rows * K * 8 B for the
++    # int64 indices alone (18.75 GiB at 384 experts / 1280 rows / K = 5120), and
++    # the same again for the delta offsets. int32 addresses the identical index
++    # space, and chunking by expert bounds every remaining temporary.
++    codes_per_expert = weight.shape[1] * weight.shape[2] * 2
++    max_chunk_elements = 8 * 1024 * 1024
++    chunk_experts = max(1, max_chunk_elements // max(1, codes_per_expert))
++    for begin in range(0, num_experts, chunk_experts):
++        end = min(begin + chunk_experts, num_experts)
++        weight_chunk = weight[begin:end]
++        lo = weight_chunk & 0x0F
++        hi = (weight_chunk >> 4) & 0x0F
++        fp4_codes = torch.stack([lo, hi], dim=-1).reshape(*weight_chunk.shape[:-1], -1)
++        delta = delta_scale_offsets[begin:end].repeat_interleave(32, dim=-1).to(
++            torch.int32
++        )
++        rewritten = lut[delta, fp4_codes.to(torch.int32)]
++        processed[begin:end] = rewritten[..., 0::2] | (rewritten[..., 1::2] << 4)
+     return processed.contiguous()
+ 
+ 

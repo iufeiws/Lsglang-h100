@@ -1,0 +1,214 @@
+1792715763.600448956	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" ","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715763.603534819	
+1792715763.655031439	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"在","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715763.657910846	
+1792715763.708892001	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"回答","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715763.711785643	
+1792715763.766938254	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"时","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715763.769855734	
+1792715763.820633950	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"请","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715763.823568164	
+1792715763.874145373	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"参考","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715763.877022844	
+1792715763.930323799	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"以下关键","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715763.933201595	
+1792715763.986919390	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"点","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715763.989853960	
+1792715764.040867855	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"：","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.043775129	
+1792715764.097004958	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" -","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.100008789	
+1792715764.151333029	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" 专家并行(","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.154227266	
+1792715764.206236430	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"EP)的原理","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.208749414	
+1792715764.261720036	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" - 专家","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.264608741	
+1792715764.317135920	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"并行(EP)与","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.319740465	
+1792715764.374120502	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"张量并行(","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.376660992	
+1792715764.429517418	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"TP)的区别 -","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.432332912	
+1792715764.483719422	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" 专家并行","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.486674382	
+1792715764.538661615	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"(EP)的","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.541564094	
+1792715764.594430900	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"优缺点 -","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.597268826	
+1792715764.649196210	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" 专家并行","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.652139734	
+1792715764.702618046	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"(EP)的适用","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.705566404	
+1792715764.756255558	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"场景\n\n","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.759288844	
+1792715764.810270453	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"#####","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.813217183	
+1792715764.864604777	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" **","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.867550744	
+1792715764.919014386	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"EP","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.922031324	
+1792715764.973652377	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" ","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715764.976682339	
+1792715765.028369310	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"的原理","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.031331315	
+1792715765.082139058	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"**\n\n","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.085074030	
+1792715765.135803811	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"-","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.138818827	
+1792715765.189237409	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" **Mo","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.192284448	
+1792715765.243076813	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"E 结构","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.246054398	
+1792715765.296913946	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"回顾","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.299777347	
+1792715765.349584270	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"**：在","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.352539877	
+1792715765.405023369	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" MoE（","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.407904078	
+1792715765.459309128	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"混合","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.461895686	
+1792715765.513243257	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"专家）模型中","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.516173914	
+1792715765.567405922	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"，Transformer 的","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.570405632	
+1792715765.620504693	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" FFN 层","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.623391026	
+1792715765.674589688	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"被替换为多个","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.677065027	
+1792715765.729186094	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"“","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.731674195	
+1792715765.786755152	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"专家”","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.789270061	
+1792715765.841374926	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"网络，并引入","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.843957245	
+1792715765.895023860	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"可","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.897615896	
+1792715765.949410971	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"学习的 Router","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715765.951928674	
+1792715766.004184588	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" 来决定","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.006797578	
+1792715766.059929985	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"每个 token 被","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.062515208	
+1792715766.115470725	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"分配给","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.118006284	
+1792715766.170018632	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"哪些专家（","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.172592628	
+1792715766.226112467	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"通常是 Top-K","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.228656901	
+1792715766.281861182	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" ","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.284798244	
+1792715766.337366702	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"个，","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.339896615	
+1792715766.392363624	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"如 Top-2）。\n-","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.395433256	
+1792715766.449128323	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" **专家并行（","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.451717918	
+1792715766.503559834	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"EP","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.506144381	
+1792715766.556368798	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"）**：将","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.559245690	
+1792715766.610274201	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"**","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.612840499	
+1792715766.661989693	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"不同","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.664573998	
+1792715766.715254247	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"专家**放置","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.717920929	
+1792715766.768970877	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"到**","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.771775333	
+1792715766.823551430	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"不同","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.826160230	
+1792715766.878204266	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" GPU** ","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.880831720	
+1792715766.931288322	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"上。例如，一个","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.933804922	
+1792715766.984056775	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" ","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715766.987049542	
+1792715767.037056457	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"8 专家","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.039544284	
+1792715767.091628676	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"、","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.094205476	
+1792715767.145568305	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"Top-","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.147993110	
+1792715767.198716421	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"2 的 Mo","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.201266880	
+1792715767.252058362	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"E 层","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.254540774	
+1792715767.304207336	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"，在","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.306768593	
+1792715767.355242609	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" 8 卡","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.357767715	
+1792715767.408189278	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"上","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.410655309	
+1792715767.462135354	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"，每","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.465116236	
+1792715767.517425420	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"张卡持","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.519679672	
+1792715767.572682352	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"有一个专家。","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.574840666	
+1792715767.626167758	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"由于","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.628629903	
+1792715767.679663036	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"每个","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.682473551	
+1792715767.731845433	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" token 需要","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.734254120	
+1792715767.784496405	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"被路由","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.787416912	
+1792715767.838240497	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"到不同的","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.841073550	
+1792715767.888701069	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"专家，而","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.891228687	
+1792715767.942623603	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"专家","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.944751831	
+1792715767.995779646	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"位于","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715767.998237417	
+1792715768.047521832	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"不同设备上","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.049585680	
+1792715768.098969426	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"，因此","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.101545751	
+1792715768.152335999	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"需要 **All","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.154788972	
+1792715768.203758929	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"-to-All","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.206332151	
+1792715768.255118489	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":" 通信** ","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.257804281	
+1792715768.305554408	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"将 token 的隐","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.307750836	
+1792715768.356812159	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"状态发送","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.359332707	
+1792715768.407994953	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"到对应设备","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.410316050	
+1792715768.458152341	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"，计算","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.460745386	
+1792715768.509258788	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"完成","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.512163467	
+1792715768.561709176	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"后再发送","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.564282413	
+1792715768.613610047	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"回原设备","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.616015138	
+1792715768.667081438	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"。\n- **与","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.669611677	
+1792715768.720460626	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"张","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.722651588	
+1792715768.773553523	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"量并行（TP）的区别","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.776103388	
+1792715768.826779231	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"**：\n","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.828942098	
+1792715768.879218444	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"  - **并行","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.881819636	
+1792715768.930839566	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"维度**：TP 是","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.933475889	
+1792715768.980409289	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"**模型","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715768.982896407	
+1792715769.029683499	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"参数","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715769.031848534	
+1792715769.080297511	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"**的","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715769.082434908	
+1792715769.130421408	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"切分（如","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715769.132991789	
+1792715769.179705974	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"将","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715769.181990218	
+1792715769.232214436	data: {"id":"fc254b21714646f9909a05d5656a1c5c","object":"text_completion","created":1792715762,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"权重","logprobs":null,"finish_reason":"length","matched_stop":null}],"usage":null}
+1792715769.234599359	
+1792715769.236480883	data: [DONE]
+1792715769.238322664	

@@ -1,0 +1,27 @@
+THIRD PARTY SOFTWARE NOTICES AND INFORMATION
+
+This file contains notices and information regarding third-party software components used in the lk_moe project.
+
+1. KVCache.AI Derived Code
+
+The following files are derived from code originally developed by KVCache.AI, licensed under the Apache License, Version 2.0:
+
+- csrc/lk_moe/moe.h
+  Original source: https://github.com/kvcache-ai/ktransformers/blob/v0.2.3/ktransformers/ktransformers_ext/operators/llamafile/moe.h
+  Modifications: Extensively refactored to support NUMA architecture and CPU-GPU hybrid inference
+  Original copyright: Copyright (c) 2024 by KVCache.AI
+  Modified by: guqiong9696@gmail.com (2025)
+
+- csrc/lk_moe/moe.cpp
+  Original source: https://github.com/kvcache-ai/ktransformers/blob/v0.2.3/ktransformers/ktransformers_ext/operators/llamafile/moe.cpp
+  Modifications: Extensively refactored to support NUMA architecture and CPU-GPU hybrid inference
+  Original copyright: Copyright (c) 2024 by KVCache.AI
+  Modified by: guqiong9696@gmail.com (2025)
+
+- csrc/lk_moe/backend_numa.cpp
+  Original source: https://github.com/kvcache-ai/ktransformers/blob/v0.2.3/ktransformers/ktransformers_ext/cpu_backend/backend.cpp
+  Modifications: Extensively refactored to implement NUMA-aware backend
+  Original copyright: Copyright (c) 2024 by KVCache.AI
+  Modified by: guqiong9696@gmail.com (2025)
+
+Note: The original KVCache.AI code included in this project is licensed under the Apache License, Version 2.0, and remains subject to its terms. All modifications, refactoring, and new code additions are the proprietary work of the Licensor and are provided as part of the Software under the terms of the lk_moe LICENSE file. Users must comply with the Apache 2.0 license for the unmodified portions and the lk_moe proprietary license for the Software as a whole.

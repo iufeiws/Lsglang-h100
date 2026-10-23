@@ -1,0 +1,60 @@
+    self.capture()
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py", line 1175, in capture
+    self._capture_one_stream()
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py", line 1235, in _capture_one_stream
+    self.capture_one_shape(
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py", line 1363, in capture_one_shape
+    self.backend.capture_one(
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/model_executor/runner_backend/full_cuda_graph_backend.py", line 223, in capture_one
+    graph_ctx(cuda_graph=graph, pool=self._pool, stream=self._capture_stream),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/cuda/graphs.py", line 1210, in __exit__
+    self.cuda_graph.capture_end()
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/cuda/graphs.py", line 649, in capture_end
+    self.capture_end_pre()
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/cuda/graphs.py", line 630, in capture_end_pre
+    super().capture_end_pre()
+torch.AcceleratorError: CUDA error: operation failed due to a previous error during capture
+Search for `cudaErrorStreamCaptureInvalidated' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/managers/scheduler.py", line 6256, in run_scheduler_process
+    scheduler = Scheduler(server_args, port_args)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/managers/scheduler.py", line 570, in __init__
+    self.init_model_worker()
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/managers/scheduler.py", line 1133, in init_model_worker
+    self.init_all_cuda_graphs()
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 124, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/managers/scheduler.py", line 1111, in init_all_cuda_graphs
+    self.tp_worker.init_cuda_graphs()
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/managers/tp_worker.py", line 428, in init_cuda_graphs
+    self.model_runner.init_cuda_graphs(
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/model_executor/model_runner.py", line 1257, in init_cuda_graphs
+    capture = capture_cuda_graphs(
+              ^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/model_executor/model_runner_components/cuda_graph_setup.py", line 413, in capture_cuda_graphs
+    decode = capture_decode_graph(model_runner=model_runner)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/model_executor/model_runner_components/cuda_graph_setup.py", line 737, in capture_decode_graph
+    runner = GraphRunnerCls(model_runner)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/model_executor/runner/decode_cuda_graph_runner.py", line 518, in __init__
+    raise Exception(
+Exception: Capture cuda graph failed: CUDA error: operation failed due to a previous error during capture
+Search for `cudaErrorStreamCaptureInvalidated' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+
+Possible solutions:
+1. set --mem-fraction-static to a smaller value (e.g., 0.8 or 0.7)
+2. set --cuda-graph-max-bs-decode to a smaller value (e.g., 16)
+3. disable decode CUDA graph by --cuda-graph-backend-decode=disabled. (Not recommended. Huge performance loss)
+Open an issue on GitHub https://github.com/sgl-project/sglang/issues/new/choose 
+
+
+[2026-10-23 02:42:45] Received sigquit from a child process. It usually means the child failed.
+[2026-10-23 02:42:45] kill_process_tree called: parent_pid=36857, include_parent=True, pid=36857

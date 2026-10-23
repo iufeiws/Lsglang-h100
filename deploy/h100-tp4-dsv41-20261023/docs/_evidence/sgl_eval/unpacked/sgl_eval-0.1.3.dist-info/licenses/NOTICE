@@ -1,0 +1,33 @@
+sgl-eval
+Copyright 2026 The SGLang Project
+
+Licensed under the Apache License, Version 2.0 (the "License"); see the
+top-level LICENSE file for the full text.
+
+================================================================================
+Third-party vendored sources
+================================================================================
+
+This product includes software developed at NVIDIA Corporation:
+    NeMo-Skills (https://github.com/NVIDIA/NeMo-Skills)
+    Released under the Apache License, Version 2.0.
+
+The vendored slice lives under `sgl_eval/_vendored/nemo_skills/`. The
+exact upstream commit, file list, and per-file provenance are recorded
+in `sgl_eval/_vendored/nemo_skills/SOURCES.yaml`. Every vendored .py
+file carries a banner header pointing back to its upstream path; .yaml
+prompt configs and bundled .txt data files carry the same provenance.
+
+Modifications applied to vendored Python sources at sync time:
+  - Intra-package imports under `nemo_skills.X` are textually rewritten
+    to `sgl_eval._vendored.nemo_skills.X` so the vendored modules
+    resolve under sgl-eval's package namespace. The mapping is recorded
+    in SOURCES.yaml under `import_rewrites`.
+  - `Lean4ProofEvaluator` (and the dependent imports under
+    `nemo_skills.code_execution.*`) is removed from
+    `evaluator/math.py`. We do not run Lean proofs.
+  - `_compute_reward_at_k` is removed from `metrics/math_metrics.py`.
+    We do not use reward-model-driven aggregation.
+
+No content edits beyond the above are made: every other line in a
+vendored file matches its upstream counterpart at the synced commit.

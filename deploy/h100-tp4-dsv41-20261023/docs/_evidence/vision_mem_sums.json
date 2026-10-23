@@ -1,0 +1,24 @@
+{
+  "vision_total_bytes": 823685120,
+  "vision_tensors": 259,
+  "patch_embed_bytes": 1206272,
+  "vision_norm_bytes": 2048,
+  "per_block_bytes": 25702400,
+  "aligner_total_bytes": 146821120,
+  "aligner_detail": {
+    "aligner.w1.bias": 10240,
+    "aligner.w1.weight": 94371840,
+    "aligner.w2.bias": 10240,
+    "aligner.w2.weight": 52428800
+  },
+  "special_bytes": 30720,
+  "grand_total_bytes": 970536960,
+  "norm_ckpt_bytes": 133120,
+  "norm_fp32_bytes": 266240,
+  "sharded_vision_bytes": 206219264,
+  "sharded_aligner_bytes": 36720640,
+  "vlm_cache_size_mb": 100,
+  "mm_feature_cache_mb": 1024,
+  "min_image_tokens_square": 184,
+  "max_image_tokens": 1024
+}

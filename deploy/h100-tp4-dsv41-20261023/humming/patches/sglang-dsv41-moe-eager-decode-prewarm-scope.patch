@@ -1,0 +1,78 @@
+--- a/sglang/srt/layers/moe/fused_moe_triton/layer.py
++++ b/sglang/srt/layers/moe/fused_moe_triton/layer.py
+@@ -368,6 +368,12 @@
+     # across pool layers at init; single source of truth for decode sizing.
+     _pool_verify_rows_mult = 1
+ 
++    # Set ONLY by the CUDA-graph prewarm's eager DECODE loop (see
++    # deepseek_v4.prepare_before_cuda_graph_capture). While True, a
++    # non-resident layer's non-capturing forward is DECODE-shaped and must take
++    # the decode entry point instead of lk_moe's PREFILL entry point.
++    _eager_decode_prewarm: bool = False
++
+     def __init__(
+         self,
+         num_experts: int,
+@@ -1749,6 +1755,17 @@
+                 dispatch_output.topk_output.topk_ids,
+             )
+         # Prefill short input: plain CPU path (below the GPU prefill tier).
++        # _eager_decode_prewarm marks the CUDA-graph prewarm's eager DECODE
++        # loop: that forward is DECODE-shaped, so it must not enter lk_moe's
++        # PREFILL entry point. Capture-time forwards never reach this branch
++        # (the one above wins by short-circuit), so nothing baked into a CUDA
++        # graph changes, and real EXTEND forwards keep _cpu_prefill.
++        elif FusedMoE._eager_decode_prewarm:
++            lk_result = self._cpu_decode(
++                dispatch_output.hidden_states,
++                dispatch_output.topk_output.topk_weights,
++                dispatch_output.topk_output.topk_ids,
++            )
+         else:
+             lk_result = self._cpu_prefill(
+                 dispatch_output.hidden_states,
+--- a/sglang/srt/models/deepseek_v4.py
++++ b/sglang/srt/models/deepseek_v4.py
+@@ -5552,20 +5552,29 @@
+         # inside the real capture and deadlock the group. Eager forwards do the
+         # actual first launch here, outside any graph.
+         with nullcontext():
+-            for bs in capture_bs:
+-                runner._dummy_run(
+-                    batch_size=bs,
+-                    buffers=buffers,
+-                    forward_mode_override=ForwardMode.DECODE,
+-                )
+-                n_fwd += 1
+-            if is_spec:
+-                for bs in verify_bs:
+-                    # default path selects TARGET_VERIFY (num_tokens = bs * block),
+-                    # exercising make_forward_metadata_from_raw_verify on device.
+-                    runner._dummy_run(batch_size=bs, buffers=buffers)
++            # These forwards are DECODE-shaped but deliberately run OUTSIDE the
++            # capture region, so MoE's capture branch cannot claim them; flag
++            # them so a non-resident layer takes the decode entry point instead
++            # of lk_moe's prefill entry point. Per-process global, reset in
++            # finally: capture and all later forwards are unaffected.
++            FusedMoE._eager_decode_prewarm = True
++            try:
++                for bs in capture_bs:
++                    runner._dummy_run(
++                        batch_size=bs,
++                        buffers=buffers,
++                        forward_mode_override=ForwardMode.DECODE,
++                    )
+                     n_fwd += 1
+-            torch.cuda.synchronize()
++                if is_spec:
++                    for bs in verify_bs:
++                        # default path selects TARGET_VERIFY (num_tokens = bs * block),
++                        # exercising make_forward_metadata_from_raw_verify on device.
++                        runner._dummy_run(batch_size=bs, buffers=buffers)
++                        n_fwd += 1
++                torch.cuda.synchronize()
++            finally:
++                FusedMoE._eager_decode_prewarm = False
+ 
+         if world > 1:
+             dist.barrier(group=get_parallel().tp_group.cpu_group)

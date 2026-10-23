@@ -1,0 +1,188 @@
+--- a/sglang/srt/mem_cache/kv_cache_configurator.py
++++ b/sglang/srt/mem_cache/kv_cache_configurator.py
+@@ -2697,6 +2697,174 @@
+                     )
+         return token_to_kv_pool_allocator
+ 
++    def _dsv41_post_convert_release(self) -> None:
++        """Gated release of MoE weight-conversion leftovers, run after the
++        weight-loading hooks and immediately before the KV budget is measured.
++
++        Only active when SGLANG_DSV41_POST_CONVERT_RELEASE=1. Freeing here is
++        measured, not assumed: every stage reports the ``mem_get_info`` delta,
++        and when nothing is recovered a diagnostic lists the largest surviving
++        CUDA tensors with the types that reference them, so the holder can be
++        named instead of guessed.
++        """
++        import gc as _gc
++
++        import torch as _torch
++
++        def _free_gib():
++            _torch.cuda.synchronize()
++            _free, _total = _torch.cuda.mem_get_info()
++            return _free / (1 << 30)
++
++        def _stage(_name, _fn):
++            _before = _free_gib()
++            _n = _fn()
++            _after = _free_gib()
++            logger.info(
++                "[ENV-CHANGE] SGLANG_DSV41_POST_CONVERT_RELEASE=1: stage=%s "
++                "touched=%s reclaimed=%.4f GiB (free %.4f -> %.4f)",
++                _name,
++                _n,
++                _after - _before,
++                _before,
++                _after,
++            )
++            return _after - _before
++
++        # Exactly what Mxfp4FlashinferCutlassMoEMethod.apply() reads at runtime.
++        _keep = {
++            "w13_weight",
++            "w2_weight",
++            "w13_weight_scale_inv",
++            "w2_weight_scale_inv",
++            "w13_humming_residual_scale",
++            "w2_humming_residual_scale",
++            "humming_fc2_act_scale",
++        }
++        # The rest of FusedMoE.clean_weights_after_loading()'s list. That cleanup
++        # returns early for resident layers (fused_moe_triton/layer.py:2046-2047),
++        # so anything the conversion left under these names is still live.
++        _drop = (
++            "w13_weight_packed",
++            "w2_weight_packed",
++            "w13_weight_scale",
++            "w2_weight_scale",
++            "w13_weight_global_scale",
++            "w2_weight_global_scale",
++            "w13_weight_scale_2",
++            "w2_weight_scale_2",
++        )
++
++        _moe = [
++            _o
++            for _o in _gc.get_objects()
++            if type(_o).__name__ == "FusedMoE" and not isinstance(_o, type)
++        ]
++
++        def _release():
++            _n = 0
++            for _m in _moe:
++                if _m.is_gpu_resident_layer:
++                    for _name in _drop:
++                        if _name in _keep or not hasattr(_m, _name):
++                            continue
++                        delattr(_m, _name)
++                        _n += 1
++            return f"{_n} attrs on {len(_moe)} FusedMoE modules"
++
++        def _diagnose():
++            # FULL enumeration: every live CUDA tensor group >= 64 MiB, sorted by
++            # bytes. No small top-N: a partial list is what hid the holder before.
++            _seen = {}
++            _rep = {}
++            for _o in _gc.get_objects():
++                if not isinstance(_o, _torch.Tensor) or not _o.is_cuda:
++                    continue
++                _nb = _o.numel() * _o.element_size()
++                if _nb < (64 << 20):
++                    continue
++                _key = (str(_o.dtype), tuple(_o.shape))
++                _seen[_key] = _seen.get(_key, 0) + _nb
++                _rep.setdefault(_key, _o)
++            _groups = sorted(_seen.items(), key=lambda _kv: -_kv[1])
++            _shown = _groups[:200]
++            for _i, (_k, _v) in enumerate(_shown):
++                logger.warning(
++                    "[ENV-CHANGE] SGLANG_DSV41_POST_CONVERT_RELEASE=1: live#%03d "
++                    "dtype=%s shape=%s bytes=%d GiB=%.4f ref_by=%s",
++                    _i,
++                    _k[0],
++                    _k[1],
++                    _v,
++                    _v / (1 << 30),
++                    sorted(
++                        {
++                            type(_r).__name__
++                            for _r in _gc.get_referrers(_rep[_k])
++                            if not isinstance(_r, (list, dict))
++                        }
++                    )[:4],
++                )
++            if len(_groups) > len(_shown):
++                logger.warning(
++                    "[ENV-CHANGE] SGLANG_DSV41_POST_CONVERT_RELEASE=1: ...还有 "
++                    "%d 组, 合计 %.4f GiB (每组均 >= 64 MiB)",
++                    len(_groups) - len(_shown),
++                    sum(_v for _k, _v in _groups[len(_shown) :]) / (1 << 30),
++                )
++            logger.warning(
++                "[ENV-CHANGE] SGLANG_DSV41_POST_CONVERT_RELEASE=1: live CUDA "
++                "tensor groups >=64MiB: %d 组, 合计 %.4f GiB (列出 %d 组)",
++                len(_groups),
++                sum(_v for _k, _v in _groups) / (1 << 30),
++                len(_shown),
++            )
++            return len(_groups)
++
++        def _nontorch():
++            # The tensors above are only the torch side. lk_moe's .so, cuBLAS /
++            # CUTLASS workspaces and NCCL buffers cudaMalloc directly and are
++            # invisible to any tensor walk; this subtraction surfaces them.
++            _alloc = _torch.cuda.memory_allocated()
++            _reserved = _torch.cuda.memory_reserved()
++            _free, _totalb = _torch.cuda.mem_get_info()
++            _used = _totalb - _free
++            logger.warning(
++                "[ENV-CHANGE] SGLANG_DSV41_POST_CONVERT_RELEASE=1: "
++                "torch_allocated=%.4f GiB torch_reserved=%.4f GiB "
++                "mem_get_info_free=%.4f GiB device_used=%.4f GiB "
++                "non_torch=%.4f GiB (= device_used - torch_reserved)",
++                _alloc / (1 << 30),
++                _reserved / (1 << 30),
++                _free / (1 << 30),
++                _used / (1 << 30),
++                (_used - _reserved) / (1 << 30),
++            )
++            return _used - _reserved
++
++        _free0, _tot0 = _torch.cuda.mem_get_info()
++        logger.warning(
++            "[ENV-CHANGE] SGLANG_DSV41_POST_CONVERT_RELEASE=1: free=%.4f GiB "
++            "(定容前, 转换全部结束; 未做 empty_cache)",
++            _free0 / (1 << 30),
++        )
++        _total = 0.0
++        _total += _stage("gc+empty_cache", lambda: _gc.collect() or _torch.cuda.empty_cache())
++        _total += _stage("drop-convert-leftovers", _release)
++        _total += _stage("gc+empty_cache-2", lambda: _gc.collect() or _torch.cuda.empty_cache())
++        # Unconditional: a byte threshold cannot tell ordinary GC (0.5 GiB) from
++        # the ~7 GiB we are after, so both the non-torch accounting and the full
++        # tensor list are printed on every run.
++        _nontorch()
++        _diagnose()
++        logger.info(
++            "[ENV-CHANGE] SGLANG_DSV41_POST_CONVERT_RELEASE=1: released "
++            "MoE weight-conversion leftovers (packed/scale/global_scale/scale_2 "
++            "attrs on resident FusedMoE layers) + gc + empty_cache; "
++            "reclaimed=%.4f GiB total",
++            _total,
++        )
++
+     def _profile_available_bytes(self, pre_model_load_memory: int) -> int:
+         # KV pool budget = currently-free GPU memory minus the non-static runtime
+         # slack (pre_model_load_memory * (1 - mem_fraction_static)). Whatever is
+@@ -2707,6 +2875,10 @@
+         # measured against an understated free-memory figure and the pool can be
+         # sized orders of magnitude too small while GPU memory sits idle.
+         gc.collect()
++        if __import__("os").environ.get(
++            "SGLANG_DSV41_POST_CONVERT_RELEASE", "0"
++        ) == "1":
++            self._dsv41_post_convert_release()
+         available_gpu_memory = get_available_gpu_memory(
+             self.device,
+             self.gpu_id,

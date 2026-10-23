@@ -1,0 +1,47 @@
+--- a/sglang/srt/model_executor/runner/base_runner.py
++++ b/sglang/srt/model_executor/runner/base_runner.py
+@@ -408,11 +408,39 @@
+         )
+ 
+         def forward_fn():
+-            self._dummy_run(
+-                batch_size=batch_size,
+-                buffers=buffers,
+-                run_ctx=canary_run_ctx,
+-            )
++            # This dummy forward is DECODE-shaped and runs OUTSIDE any capture
++            # region, so a non-resident MoE layer must take lk_moe's DECODE
++            # entry point; without the flag it falls into the PREFILL entry
++            # point, which faults on a decode-shaped batch. Independent switch:
++            # SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE=1 enables just this wrapping
++            # (SGLANG_DSV41_SKIP_CAPTURE_PREWARM governs the separate capture
++            # prewarm loop and neither implies the other).
++            import os
++
++            if os.environ.get("SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE", "0") == "1":
++                from sglang.srt.layers.moe.fused_moe_triton.layer import (
++                    FusedMoE,
++                )
++
++                logger.info(
++                    "[autotune-decode] forward_fn flagged as eager DECODE dummy "
++                    "-> non-resident layers take _cpu_decode"
++                )
++                FusedMoE._eager_decode_prewarm = True
++                try:
++                    self._dummy_run(
++                        batch_size=batch_size,
++                        buffers=buffers,
++                        run_ctx=canary_run_ctx,
++                    )
++                finally:
++                    FusedMoE._eager_decode_prewarm = False
++            else:
++                self._dummy_run(
++                    batch_size=batch_size,
++                    buffers=buffers,
++                    run_ctx=canary_run_ctx,
++                )
+ 
+         run_flashinfer_autotune_forward(
+             self.model_runner, forward_fn, run_lm_head=False

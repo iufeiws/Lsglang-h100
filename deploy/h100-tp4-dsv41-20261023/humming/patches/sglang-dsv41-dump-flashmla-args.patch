@@ -1,0 +1,85 @@
+--- a/sglang/srt/layers/attention/deepseek_v4_backend.py
++++ b/sglang/srt/layers/attention/deepseek_v4_backend.py
+@@ -4241,6 +4241,82 @@
+                         extra_indices=extra_indices,
+                         extra_topk_length=extra_topk_lengths,
+                     )
++                if __import__("os").environ.get(
++                    "SGLANG_DSV41_DUMP_FLASHMLA_ARGS", "0"
++                ) == "1":
++                    # Everything below runs ONLY when the gate is "1": otherwise
++                    # no min/max reduction, no sync and no extra kernel is issued.
++                    # __import__ keeps `os` out of this function's local scope.
++                    def _r(t):
++                        if t is None:
++                            return "None"
++                        # CUDA has no min/max reduction for float8 (raises
++                        # "min_all_cuda" not implemented for 'Float8_e4m3fn')
++                        # and other non-reducible dtypes, so widen the tensor
++                        # first and degrade to n/a on any remaining failure.
++                        # A dump helper must never break the forward it watches.
++                        try:
++                            _t = (
++                                t
++                                if t.dtype
++                                in (
++                                    torch.float16,
++                                    torch.bfloat16,
++                                    torch.float32,
++                                    torch.float64,
++                                    torch.int8,
++                                    torch.int16,
++                                    torch.int32,
++                                    torch.int64,
++                                    torch.uint8,
++                                    torch.bool,
++                                )
++                                else t.to(torch.float32)
++                            )
++                            _mn, _mx = int(_t.min()), int(_t.max())
++                        except Exception as _exc:
++                            _mn = _mx = f"n/a({type(_exc).__name__})"
++                        return (
++                            f"shape={tuple(t.shape)} dtype={t.dtype} "
++                            f"stride={tuple(t.stride())} contig={t.is_contiguous()} "
++                            f"min={_mn} max={_mx}"
++                        )
++
++                    _sm_tile = "None"
++                    _sm_splits = "None"
++                    if flashmla_metadata is not None:
++                        _sm_tile = type(
++                            getattr(flashmla_metadata, "tile_scheduler_metadata", None)
++                        ).__name__
++                        _sm_splits = type(
++                            getattr(flashmla_metadata, "num_splits", None)
++                        ).__name__
++                    logger.info(
++                        "[flashmla-args] layer_id=%s q=%s swa_k_cache=%s "
++                        "extra_k_cache=%s indices=%s topk_length=%s "
++                        "extra_indices=%s extra_topk_length=%s "
++                        "sched_meta_type=%s sched_meta.tile_scheduler_metadata=%s "
++                        "sched_meta.num_splits=%s is_fp8_kvcache=%s head_dim_v=%s "
++                        "block_table=None cache_seqlens=None softmax_scale=%s",
++                        layer_id,
++                        f"shape={tuple(q.shape)} dtype={q.dtype} "
++                        f"stride={tuple(q.stride())} contig={q.is_contiguous()}",
++                        f"shape={tuple(swa_k_cache.shape)} dtype={swa_k_cache.dtype} "
++                        f"stride={tuple(swa_k_cache.stride())} "
++                        f"contig={swa_k_cache.is_contiguous()}",
++                        _r(extra_k_cache),
++                        _r(swa_page_indices),
++                        _r(swa_topk_lengths),
++                        _r(extra_indices),
++                        _r(extra_topk_lengths),
++                        type(flashmla_metadata).__name__,
++                        _sm_tile,
++                        _sm_splits,
++                        True,
++                        self.head_dim_v,
++                        self.softmax_scale,
++                    )
++
+                 o = flash_mla_with_kvcache(
+                     q=q,
+                     k_cache=swa_k_cache,

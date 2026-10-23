@@ -1,0 +1,57 @@
+--- a/sglang/srt/layers/attention/deepseek_v4_backend.py
++++ b/sglang/srt/layers/attention/deepseek_v4_backend.py
+@@ -4064,10 +4064,33 @@
+                     return x[: q.shape[0]]
+                 return _pad_tensor_to_size(x, q.shape[0], value=value)
+ 
+-            swa_page_indices = match_num_queries(swa_page_indices, value=0)
+-            swa_topk_lengths = match_num_queries(swa_topk_lengths, value=1)
++            # Padding rows produced by match_num_queries below carry a page id
++            # and a claim of how many valid indices that row has. Upstream uses
++            # 0 (a REAL page id) and 1 (claims one valid index), i.e. padding
++            # that looks like live metadata. With the gate below they become a
++            # sentinel page (-1, the same value this file already uses for
++            # invalid pages) plus a zero length, so a padding row reads as
++            # empty rather than as page 0. NOTE: that sparse_decode_fwd treats
++            # a zero length as "skip this row" is NOT yet established -- keep
++            # the gate off unless a numerical A/B (see docs) confirms it.
++            # __import__ avoids making a local-name binding of ``os`` here.
++            _swa_pad_sentinel = (
++                __import__("os").environ.get("SGLANG_DSV41_SWA_PAD_SENTINEL", "0")
++                == "1"
++            )
++            if _swa_pad_sentinel:
++                logger.warning(
++                    "[ENV-CHANGE] SGLANG_DSV41_SWA_PAD_SENTINEL=1: "
++                    "SWA/indexer padding rows now carry sentinel page + zero length"
++                )
++            _page_pad = -1 if _swa_pad_sentinel else 0
++            _len_pad = 0 if _swa_pad_sentinel else 1
++            swa_page_indices = match_num_queries(swa_page_indices, value=_page_pad)
++            swa_topk_lengths = match_num_queries(swa_topk_lengths, value=_len_pad)
+             extra_indices = match_num_queries(extra_indices, value=-1)
+-            extra_topk_lengths = match_num_queries(extra_topk_lengths, value=1)
++            extra_topk_lengths = match_num_queries(
++                extra_topk_lengths, value=_len_pad
++            )
+ 
+             if self.trtllm_attn:
+                 # The uniform-FP8 pool is readable only by trtllm-gen.
+--- a/sglang/srt/layers/attention/dsv4/indexer.py
++++ b/sglang/srt/layers/attention/dsv4/indexer.py
+@@ -1212,7 +1212,14 @@
+             indexer_metadata.compressed_seq_lens, value=0 if use_aiter_fp4 else 1
+         )
+         _c4sl = c4_seq_lens
+-        page_table = match_num_queries(indexer_metadata.page_table, value=0)
++        # Same padding convention as deepseek_v4_backend._forward_attention:
++        # upstream pads with 0, a real page id. The gate makes it a sentinel so
++        # a padding row cannot be mistaken for page 0.
++        page_table = match_num_queries(
++            indexer_metadata.page_table,
++            value=(-1 if __import__("os").environ.get(
++                "SGLANG_DSV41_SWA_PAD_SENTINEL", "0") == "1" else 0),
++        )
+         c4_sparse_page_indices = match_num_queries(
+             core_metadata.c4_sparse_page_indices, value=-1
+         )

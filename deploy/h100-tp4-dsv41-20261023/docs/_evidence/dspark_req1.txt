@@ -1,0 +1,48 @@
+START=1792715672.883318407
+1792715673.235269263	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"...","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.237529043	
+1792715673.282460233	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"在","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.284550368	
+1792715673.331089793	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"张量并行","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.333021513	
+1792715673.378418584	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"中，我们","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.380518807	
+1792715673.425763607	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"通常","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.427883381	
+1792715673.471850383	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"将权重","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.474001353	
+1792715673.520752046	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"矩阵切","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.522955895	
+1792715673.568666301	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"分成多个部分","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.570878026	
+1792715673.616665117	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"，并在","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.618807470	
+1792715673.663512341	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"多个","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.665685078	
+1792715673.712577714	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"GPU","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.714757814	
+1792715673.761732214	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"上并行","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.764434094	
+1792715673.809439895	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"计算。","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.811543873	
+1792715673.859128185	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"...","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.861261996	
+1792715673.907705863	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"在","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.909871542	
+1792715673.956590342	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"张量并行中，我们","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715673.958704440	
+1792715674.007315383	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"通常将权重矩阵切分成","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715674.009526711	
+1792715674.057997719	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"多个部分，并在多个GPU","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715674.060562531	
+1792715674.107540236	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"上并行计算。...","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715674.109672845	
+1792715674.156984509	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"在张量并行中","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715674.159083152	
+1792715674.207750286	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"，我们通常将权重矩阵","logprobs":null,"finish_reason":null,"matched_stop":null}],"usage":null}
+1792715674.209850281	
+1792715674.258896171	data: {"id":"6b1359b81b01463ead0c9aba7732ec66","object":"text_completion","created":1792715672,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"text":"切分成多个部分","logprobs":null,"finish_reason":"length","matched_stop":null}],"usage":null}
+1792715674.261097966	
+1792715674.262821791	data: [DONE]
+1792715674.264539991	
+END=1792715674.266448157

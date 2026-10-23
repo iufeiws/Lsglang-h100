@@ -1,0 +1,35 @@
+--- a/sglang/srt/layers/quantization/mxfp4_flashinfer_cutlass_moe.py
++++ b/sglang/srt/layers/quantization/mxfp4_flashinfer_cutlass_moe.py
+@@ -24,6 +24,10 @@
+ 
+ # One-shot guard for the intermediate-widening notice (see create_weights).
+ _pad_intermediate_logged = False
++
++# [ENV] Counter for the gated per-layer conversion free-memory trace
++# (SGLANG_DSV41_POST_CONVERT_RELEASE); inert while the gate is off.
++_dsv41_convert_trace_n = 0
+ 
+ if TYPE_CHECKING:
+     from sglang.srt.layers.moe.token_dispatcher import CombineInput, DispatchOutput
+@@ -254,6 +258,21 @@
+         if not self._use_mxfp8_act_scaling:
+             torch.cuda.empty_cache()
+ 
++        # [ENV] Per-layer free-memory trace so a run shows WHERE the per-card
++        # footprint accumulates (every 4th converted layer, rank0 only, and
++        # deliberately WITHOUT an extra empty_cache so nothing is masked).
++        if os.environ.get("SGLANG_DSV41_POST_CONVERT_RELEASE", "0") == "1":
++            global _dsv41_convert_trace_n
++            _dsv41_convert_trace_n += 1
++            if _dsv41_convert_trace_n % 4 == 0:
++                _free, _tot = torch.cuda.mem_get_info()
++                log_info_on_rank0(
++                    logger,
++                    f"[ENV-CHANGE] SGLANG_DSV41_POST_CONVERT_RELEASE=1: "
++                    f"convert-trace n={_dsv41_convert_trace_n} "
++                    f"layer={self.prefix} free={_free / (1 << 30):.4f} GiB",
++                )
++
+     def apply(
+         self,
+         layer: Module,
