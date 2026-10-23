@@ -10,8 +10,11 @@
   torch 2.14.1+cu132 / flashinfer-python 0.7.2 / sgl-kernel 0.4.10 / lk_moe 2.7.1 / Python 3.12.11
   （非上游之处：**torchaudio 已卸载**（仅 cu130 轮子，与 cu132 冲突）；libnuma 用 conda-forge numactl）
 - 权重：`/mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017`（revision `1bae0e1088993b9b82de08f59de5be5a34e42170`，84 文件）
-- **site-packages 当前为 pristine**：本仓 `humming/patches/` 里的补丁**均未应用**（apply/rollback 脚本齐备；
-  `humming/stash/` 是我们曾经应用过的版本，仅留档）
+- **site-packages 状态（2026-10-23 更新）**：**已应用 1 个修复补丁** —— `reject_sampling q 容差`
+  （文件 `sglang/kernels/ops/speculative/reject_sampling.py`；装后 sha256 `541e6ee8…`，备份 `.orig` = `62caac17…`；
+  生效标记：`grep "ENV-PATCH] reject_sampling q-tolerance"`；apply/rollback 见 `humming/patches/`）。
+  **其余补丁均未应用**；`humming/stash/` 为曾应用版本留档。
+  ⚠ 该修复**在下次启动后才生效**（运行中的进程仍是启动时 import 的旧内核）。
 
 ## 当前生效配置（`configs/dsv41_tp4_h100.conf`）
 - `--tensor-parallel-size 4`、无 `--ep-size`、无 `--attn-dp-size`
@@ -47,6 +50,24 @@ cd scripts && bash serve_dsv41_tp4_h100.sh        # 预检 → 启动 → 写日
 bash stop_dsv41_tp4_h100.sh                       # 停
 bash status.sh / bash health.sh                   # 看状态
 ```
+
+## 已应用的修复（2026-10-23）
+
+### reject_sampling q 容差（DSPARK 接受判定）
+- **问题**：`q_is_prob = (q > 0.0) & (q <= 1.0)` 把"舍入导致 q 略大于 1"当成非法概率 ⇒ 接受长度被清零
+  （实测：`q=1.0000001` 即从 **5/5 → 0/5**）。四处：普通验证、block 验证、residual 两遍扫描。
+- **修法**：`q <= 1.0 + Q_PROB_TOL`（`Q_PROB_TOL_DEFAULT = 1e-2`），并在计算前把 q **clamp 到 [0,1]**
+  （`p/qc`、`coin*qc` 全部用 clamp 后的值）；residual 由"越界清零"改为"容差带内夹到 1、负值/NaN/±inf 仍取 0"。
+  `q<=0` 仍拒绝，`q > 1+EPS` 仍拒绝。
+- **EPS 依据**：fp32 行和最坏前向误差界 `(V-1)·u`，V=129,280 ⇒ `7.71e-3`，取 `1e-2`（1.30× 余量）。
+- **等价性**：`q∈[0,1]` 且无 NaN ⇒ 逐位等价（16,384 条随机链 accept_num/predicts 全同；接受律 B=262,144 两组同值）。
+  唯一变化域 = `q ∈ (1, 1+EPS]`。
+- **验证**：单卡（GPU3）单链 p=0.999/coin=0.5/gamma=5；`1.0000001 / 1.000006 / 1.00002 / 1.01` 修复后均 5/5；
+  `1.0101/1.02/1.1/2.0/+inf/0/-1e-8/-0.5/NaN` 修复前后逐位一致。
+- **产物**：`humming/patches/sglang-reject-sampling-q-tolerance.patch` + `apply_/rollback_*.sh`、
+  `docs/reject-sampling-q-fix.md`、`scripts/test_reject_sampling_q_tolerance.py`、
+  `scripts/repro_reject_q_gt1.py`、`docs/figs/reject-sampling-q-tolerance-20261023.png`、`docs/_evidence/q_tolerance/`
+- **未覆盖**：真实 129k vocab 端到端验证未做（本机 softmax 810 次采样 `max(q)=1.000000000`，即触发条件未在本机观测到）。
 
 ## 目录
 - `scripts/` 启动/停止/状态/健康检查 + 压测脚本（`bench256_streams.py` 等）

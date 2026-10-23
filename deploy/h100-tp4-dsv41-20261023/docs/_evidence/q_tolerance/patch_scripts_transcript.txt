@@ -1,0 +1,26 @@
+$ ./rollback_sglang_reject_sampling_q_tolerance.sh --dry-run
+DRY RUN: 会用 /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py.orig 覆盖 /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py（当前文件不含标记即视为还原成功）
+--- current(patched)
++++ orig(pristine)
+$ ./rollback_sglang_reject_sampling_q_tolerance.sh
+ROLLED BACK: /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py == /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py.orig (sha256 62caac17755082e2)
+$ ./rollback_sglang_reject_sampling_q_tolerance.sh   # 幂等
+NOT PATCHED: /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py 无标记，无需还原
+$ ./apply_sglang_reject_sampling_q_tolerance.sh --dry-run
+note: 复用已有备份 /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py.orig（与当前文件一致）
+DRY RUN: 不会修改 /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py
+checking file sglang/kernels/ops/speculative/reject_sampling.py
+DRY RUN OK: 补丁可干净应用
+$ ./apply_sglang_reject_sampling_q_tolerance.sh
+note: 复用已有备份 /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py.orig（与当前文件一致）
+patching file sglang/kernels/ops/speculative/reject_sampling.py
+APPLIED: /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py
+  4:# [ENV-PATCH] reject_sampling q-tolerance EPS=1e-2
+  83:            # [ENV-PATCH] reject_sampling q-tolerance EPS=1e-2
+  169:            # distribution. [ENV-PATCH] reject_sampling q-tolerance EPS=1e-2:
+  251:                # Same guard as pass 1. [ENV-PATCH] reject_sampling q-tolerance
+回滚: /mnt/SSD01/models/.llm-env/humming/patches/rollback_sglang_reject_sampling_q_tolerance.sh
+$ ./apply_sglang_reject_sampling_q_tolerance.sh   # 幂等
+ALREADY APPLIED: /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py 已含标记 '[ENV-PATCH] reject_sampling q-tolerance'
+$ sha256sum <site-packages>/.../reject_sampling.py
+541e6ee85e404a4cde34cd74b7528afbb7133f40d3693aa2e83b13fa6b29afe2  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/speculative/reject_sampling.py

@@ -1,0 +1,99 @@
+--- a/sglang/kernels/ops/speculative/reject_sampling.py
++++ b/sglang/kernels/ops/speculative/reject_sampling.py
+@@ -1,6 +1,17 @@
+ import triton
+ import triton.language as tl
+ 
++# [ENV-PATCH] reject_sampling q-tolerance EPS=1e-2
++# A draft probability q produced by an fp32 softmax may exceed 1.0 by a few ulp
++# of the row normalization. Worst-case fp32 accumulation bound for the DSPARK
++# vocab of 129,280 tokens (DeepSeek-V4.1-Flash-1017): (V - 1) * 2**-24 = 7.7e-3,
++# rounded up to 1e-2 here. Such a value is a rounding artifact of a legal
++# probability, so it is clamped into [0, 1] instead of being treated as an
++# illegal probability (which used to zero the whole accepted prefix). Values
++# above this tolerance, and non-probabilities (NaN, +-inf, <= 0), keep the
++# legacy reject behaviour.
++Q_PROB_TOL_DEFAULT: tl.constexpr = 1e-2
++
+ 
+ @triton.jit
+ def speculative_sampling_classic_kernel(
+@@ -33,6 +44,7 @@
+     BLOCK_V: tl.constexpr,
+     BLOCK_VERIFICATION: tl.constexpr = False,
+     BLOCK_REDUCE: tl.constexpr = 4096,
++    Q_PROB_TOL: tl.constexpr = Q_PROB_TOL_DEFAULT,
+ ):
+     pid = tl.program_id(0)
+     cur_prob_row = 0
+@@ -68,8 +80,17 @@
+                 + (step - 1) * stride_dp_s
+                 + draft_token * stride_dp_v
+             )
+-            q_is_prob = (q > 0.0) & (q <= 1.0)
+-            prefix_prob = tl.where(q_is_prob, tl.minimum(prefix_prob * p / q, 1.0), 0.0)
++            # [ENV-PATCH] reject_sampling q-tolerance EPS=1e-2
++            # q slightly above 1.0 is a rounding artifact, not an illegal draft
++            # token: allow the tolerance band and clamp into the probability
++            # domain, so that such a q behaves exactly like q == 1.0. Values
++            # beyond 1.0 + Q_PROB_TOL and non-probabilities (NaN, +-inf, <= 0)
++            # keep the legacy reject path.
++            q_is_prob = (q > 0.0) & (q <= 1.0 + Q_PROB_TOL)
++            q_clamped = tl.minimum(tl.maximum(q, 0.0), 1.0)
++            prefix_prob = tl.where(
++                q_is_prob, tl.minimum(prefix_prob * p / q_clamped, 1.0), 0.0
++            )
+             prefix_probs += (prefix_prob,)
+ 
+         for step in tl.static_range(NUM_SLOTS - 1, 0, -1):
+@@ -144,9 +165,14 @@
+                 + draft_token * stride_dp_v
+             )
+             coin = tl.load(uni_ptr_base + (step - 1) * stride_uni_s)
+-            # A proposal token must have positive probability under its draft distribution.
+-            q_is_prob = (q > 0.0) & (q <= 1.0)
+-            if q_is_prob & (coin * q < p):
++            # A proposal token must have positive probability under its draft
++            # distribution. [ENV-PATCH] reject_sampling q-tolerance EPS=1e-2:
++            # q in (1.0, 1.0 + Q_PROB_TOL] is treated as q == 1.0 (clamped)
++            # instead of being rejected; beyond the tolerance and for
++            # NaN/+-inf/<= 0 the legacy reject is unchanged.
++            q_is_prob = (q > 0.0) & (q <= 1.0 + Q_PROB_TOL)
++            q_clamped = tl.minimum(tl.maximum(q, 0.0), 1.0)
++            if q_is_prob & (coin * q_clamped < p):
+                 num_accept += 1
+                 cur_prob_row = step
+                 tl.store(Predicts + last_accepted_global_idx, draft_token)
+@@ -188,10 +214,14 @@
+             else:
+                 q_ptr = dp_base_ptr_safe + v_offsets * stride_dp_v
+                 q_val = tl.load(q_ptr, mask=mask, other=0.0)
+-                # Treat any non-probability q (NaN, +-inf, negative) as 0: the
+-                # residual falls back to p. A comparison against NaN is false, so
+-                # the range test rejects it along with the infinities.
+-                q_val = tl.where((q_val >= 0.0) & (q_val <= 1.0), q_val, 0.0)
++                # Treat any non-probability q (NaN, +-inf, negative, or beyond
++                # 1.0 + Q_PROB_TOL) as 0: the residual falls back to p. A
++                # comparison against NaN is false, so the range test rejects it
++                # along with the infinities. [ENV-PATCH] reject_sampling
++                # q-tolerance EPS=1e-2: values inside the tolerance band above
++                # 1.0 are clamped to 1.0 instead of being zeroed.
++                q_in_prob = (q_val >= 0.0) & (q_val <= 1.0 + Q_PROB_TOL)
++                q_val = tl.where(q_in_prob, tl.minimum(q_val, 1.0), 0.0)
+                 diff = residual_scale * p_val - q_val
+                 val = tl.where(diff > 0.0, diff, 0.0)
+ 
+@@ -218,8 +248,11 @@
+             else:
+                 q_ptr = dp_base_ptr_safe + v_offsets * stride_dp_v
+                 q_val = tl.load(q_ptr, mask=mask, other=0.0)
+-                # Same guard as pass 1.
+-                q_val = tl.where((q_val >= 0.0) & (q_val <= 1.0), q_val, 0.0)
++                # Same guard as pass 1. [ENV-PATCH] reject_sampling q-tolerance
++                # EPS=1e-2: the tolerance band above 1.0 is clamped to 1.0
++                # instead of being zeroed; NaN/+-inf/negative still become 0.
++                q_in_prob = (q_val >= 0.0) & (q_val <= 1.0 + Q_PROB_TOL)
++                q_val = tl.where(q_in_prob, tl.minimum(q_val, 1.0), 0.0)
+                 diff = residual_scale * p_val - q_val
+                 val = tl.where(diff > 0.0, diff, 0.0)
+ 
