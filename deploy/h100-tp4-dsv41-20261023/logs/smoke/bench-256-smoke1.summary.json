@@ -1,0 +1,38 @@
+[
+  {
+    "stage": "multi-K2",
+    "mode": "multi",
+    "K": 2,
+    "target_ctx": 0,
+    "budget_s": 45.0,
+    "wall_common_window_s": 48.942,
+    "wall_full_span_s": 48.944,
+    "rounds_total": 12,
+    "rounds_ok": 12,
+    "failures": 0,
+    "failure_kinds": [],
+    "failure_examples": [],
+    "agg_out_tok_s_commonwindow": 24.519,
+    "agg_in_tok_s_commonwindow": 71.513,
+    "agg_out_tok_s_fullspan": 29.422,
+    "rounds_in_common_window": 10,
+    "tokens_out_in_common_window": 1200,
+    "tokens_in_in_common_window": 3500,
+    "per_stream_out_tok_s_mean": 28.233,
+    "per_stream_out_tok_s_p50": 23.816,
+    "per_stream_ms_per_step_mean": 38.94,
+    "per_stream_ms_per_step_p50": 42.157,
+    "per_stream_active_out_tok_s_mean": 14.893,
+    "ttft_s": {
+      "p50": 3.278,
+      "p95": 4.069
+    },
+    "ctx_max": 798,
+    "ctx_min": 142,
+    "ctx_mean": 470.0,
+    "foreign_sock_max": 0,
+    "clean_round_share_pct": 100.0,
+    "started": "2026-10-23T05:12:35+0800",
+    "ended": "2026-10-23T05:13:24+0800"
+  }
+]

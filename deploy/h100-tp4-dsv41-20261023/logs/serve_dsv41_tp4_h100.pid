@@ -1,0 +1,8 @@
+# 由 serve_dsv41_tp4_h100.sh 自动生成 —— 停止脚本只操作这里记录的 PID/PGID
+PID=43596
+PGID=43596
+START_TS=2026-10-23\ 09:32:44
+PORT=18010
+LOG_FILE_RECORDED=/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261023_093224.log
+SNAP_FILE=/mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.effective.20261023_093224.conf
+LAUNCHER_PID=42265

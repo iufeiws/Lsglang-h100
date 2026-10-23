@@ -1,0 +1,78 @@
+# 停止现场快照  2026-10-23 08:19:30+0800  TS=20261023_0726
+# 触发: 外部 SIGTERM (非崩溃, 见 serve 日志 11227-11232 行)
+
+## 停止瞬间进程/端口/显存
+bench clients: 0 个
+old sglang pid=55964: 0 个存活 (0=已退出)
+18010 listening: 0
+nvidia-smi @ 2026-10-23 08:19:31:
+0, 72041 MiB, 81559 MiB
+1, 72041 MiB, 81559 MiB
+2, 0 MiB, 81559 MiB
+3, 0 MiB, 81559 MiB
+4, 60928 MiB, 81559 MiB
+5, 61198 MiB, 81559 MiB
+6, 61198 MiB, 81559 MiB
+7, 60718 MiB, 81559 MiB
+
+## serve 日志尾部 60 行
+[pool] dstep=153900 win hit=93.4% nr=0.0% psl=0.05 link=115.56GB/s gather=7us copyiss=1029.9us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1338us | cum hit=94.8% h=18976453 m=1044180 p=170155 B=799755724800 resident=2560 nr=22811 vf=0 oom=0 stalls=0 sk=77545 stale=0 tag=0 pubbad=0 publag=199229 cmiss=0 cdup=0
+[pool] dstep=153900 win hit=93.6% nr=0.0% psl=0.05 link=115.56GB/s gather=7us copyiss=1133.9us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1324us | cum hit=94.8% h=18975246 m=1045384 p=170073 B=799370311680 resident=2560 nr=23968 vf=0 oom=0 stalls=0 sk=78651 stale=0 tag=0 pubbad=0 publag=208337 cmiss=0 cdup=0
+[pool] dstep=153900 win hit=93.4% nr=0.0% psl=0.05 link=115.56GB/s gather=7us copyiss=1133.8us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1307us | cum hit=94.8% h=18976114 m=1044520 p=170152 B=799741624320 resident=2560 nr=23666 vf=0 oom=0 stalls=0 sk=77727 stale=0 tag=0 pubbad=0 publag=206817 cmiss=0 cdup=0
+[2026-10-23 08:04:17 TP0] Decode batch, #running-req: 4, #full token: 17408, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 93.23, #queue-req: 0
+[2026-10-23 08:04:19 TP0] Decode batch, #running-req: 4, #full token: 17408, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 90.39, #queue-req: 0
+[pool] dstep=154000 win hit=93.2% nr=0.0% psl=0.04 link=96.44GB/s gather=7us copyiss=1015.2us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1479us | cum hit=94.8% h=19021199 m=1047434 p=170244 B=800174039040 resident=2560 nr=22827 vf=0 oom=0 stalls=0 sk=78928 stale=0 tag=0 pubbad=0 publag=199333 cmiss=0 cdup=0
+[pool] dstep=154000 win hit=93.2% nr=0.0% psl=0.04 link=94.27GB/s gather=7us copyiss=1007.9us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1499us | cum hit=94.8% h=19020780 m=1047857 p=170250 B=800202240000 resident=2560 nr=22754 vf=0 oom=0 stalls=0 sk=79071 stale=0 tag=0 pubbad=0 publag=198731 cmiss=0 cdup=0
+[pool] dstep=154000 win hit=93.3% nr=0.0% psl=0.04 link=93.19GB/s gather=9us copyiss=1060.7us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1502us | cum hit=94.8% h=19020018 m=1048612 p=170159 B=799774525440 resident=2560 nr=23981 vf=0 oom=0 stalls=0 sk=80009 stale=0 tag=0 pubbad=0 publag=208440 cmiss=0 cdup=0
+[pool] dstep=154000 win hit=93.1% nr=0.0% psl=0.05 link=100.77GB/s gather=8us copyiss=1075.2us que=21 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1491us | cum hit=94.8% h=19020788 m=1047846 p=170246 B=800178739200 resident=2560 nr=23681 vf=0 oom=0 stalls=0 sk=79174 stale=0 tag=0 pubbad=0 publag=206922 cmiss=0 cdup=0
+[2026-10-23 08:04:21 TP0] Decode batch, #running-req: 4, #full token: 18432, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 92.86, #queue-req: 0
+[2026-10-23 08:04:23 TP0] Decode batch, #running-req: 4, #full token: 18432, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 92.46, #queue-req: 0
+[2026-10-23 08:04:24 TP0] Decode batch, #running-req: 4, #full token: 18432, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 92.35, #queue-req: 0
+[pool] dstep=154100 win hit=94.3% nr=0.0% psl=0.06 link=120.16GB/s gather=7us copyiss=997.8us que=21 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1367us | cum hit=94.8% h=19066471 m=1050162 p=170356 B=800695756800 resident=2560 nr=22839 vf=0 oom=0 stalls=0 sk=79863 stale=0 tag=0 pubbad=0 publag=199439 cmiss=0 cdup=0
+[pool] dstep=154100 win hit=94.3% nr=0.0% psl=0.06 link=122.33GB/s gather=6us copyiss=995.1us que=21 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1367us | cum hit=94.8% h=19066035 m=1050602 p=170364 B=800733358080 resident=2560 nr=22766 vf=0 oom=0 stalls=0 sk=80012 stale=0 tag=0 pubbad=0 publag=198837 cmiss=0 cdup=0
+[pool] dstep=154100 win hit=94.4% nr=0.0% psl=0.06 link=120.16GB/s gather=7us copyiss=1108.4us que=21 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1398us | cum hit=94.8% h=19065308 m=1051322 p=170271 B=800296243200 resident=2560 nr=23994 vf=0 oom=0 stalls=0 sk=80928 stale=0 tag=0 pubbad=0 publag=208544 cmiss=0 cdup=0
+[pool] dstep=154100 win hit=94.2% nr=0.0% psl=0.05 link=114.75GB/s gather=8us copyiss=1096.7us que=21 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1376us | cum hit=94.8% h=19066014 m=1050619 p=170352 B=800676956160 resident=2560 nr=23693 vf=0 oom=0 stalls=0 sk=80154 stale=0 tag=0 pubbad=0 publag=207028 cmiss=0 cdup=0
+[2026-10-23 08:04:26 TP0] Decode batch, #running-req: 4, #full token: 18432, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 92.36, #queue-req: 0
+[2026-10-23 08:04:28 TP0] Decode batch, #running-req: 4, #full token: 18432, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 92.34, #queue-req: 0
+[pool] dstep=154200 win hit=94.3% nr=0.0% psl=0.06 link=130.52GB/s gather=7us copyiss=1104.2us que=21 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1449us | cum hit=94.8% h=19110562 m=1054068 p=170391 B=800860262400 resident=2560 nr=24002 vf=0 oom=0 stalls=0 sk=81872 stale=0 tag=0 pubbad=0 publag=208653 cmiss=0 cdup=0
+[pool] dstep=154200 win hit=94.3% nr=0.0% psl=0.06 link=134.87GB/s gather=7us copyiss=1095.8us que=22 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1425us | cum hit=94.8% h=19111267 m=1053366 p=170477 B=801259776000 resident=2560 nr=23702 vf=0 oom=0 stalls=0 sk=81093 stale=0 tag=0 pubbad=0 publag=207142 cmiss=0 cdup=0
+[pool] dstep=154200 win hit=94.3% nr=0.0% psl=0.07 link=144.66GB/s gather=7us copyiss=980.7us que=22 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1451us | cum hit=94.8% h=19111731 m=1052902 p=170490 B=801320878080 resident=2560 nr=22849 vf=0 oom=0 stalls=0 sk=80776 stale=0 tag=0 pubbad=0 publag=199549 cmiss=0 cdup=0
+[pool] dstep=154200 win hit=94.2% nr=0.0% psl=0.07 link=145.74GB/s gather=7us copyiss=1014.2us que=22 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1462us | cum hit=94.8% h=19111247 m=1053390 p=170499 B=801363179520 resident=2560 nr=22776 vf=0 oom=0 stalls=0 sk=80973 stale=0 tag=0 pubbad=0 publag=198947 cmiss=0 cdup=0
+[2026-10-23 08:04:29 TP0] Decode batch, #running-req: 4, #full token: 18432, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 92.54, #queue-req: 0
+[2026-10-23 08:04:31 TP0] Decode batch, #running-req: 4, #full token: 18688, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 92.33, #queue-req: 0
+[2026-10-23 08:04:33 TP0] Decode batch, #running-req: 4, #full token: 19456, full token usage: 0.00, #swa token: 3328, swa token usage: 0.06, cuda graph: True, gen throughput (token/s): 93.27, #queue-req: 0
+[2026-10-23 08:04:34 TP0] Prefill batch, #new-seq: 1, #new-token: 1334, #cached-token: 3328, full token usage: 0.00, swa token usage: 0.07, #running-req: 3, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 46.78
+[2026-10-23 08:04:34] INFO:     127.0.0.1:38914 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[pool] dstep=154300 win hit=93.2% nr=0.0% psl=0.04 link=82.82GB/s gather=7us copyiss=1108.9us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1340us | cum hit=94.8% h=19155302 m=1057328 p=170481 B=801287976960 resident=2560 nr=24005 vf=0 oom=0 stalls=0 sk=83191 stale=0 tag=0 pubbad=0 publag=208754 cmiss=0 cdup=0
+[pool] dstep=154300 win hit=93.1% nr=0.0% psl=0.04 link=77.36GB/s gather=12us copyiss=1066.5us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1331us | cum hit=94.8% h=19155949 m=1056688 p=170582 B=801762693120 resident=2560 nr=22783 vf=0 oom=0 stalls=0 sk=82340 stale=0 tag=0 pubbad=0 publag=199047 cmiss=0 cdup=0
+[pool] dstep=154300 win hit=93.2% nr=0.0% psl=0.05 link=85.55GB/s gather=8us copyiss=1122.9us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1324us | cum hit=94.8% h=19156009 m=1056624 p=170569 B=801701591040 resident=2560 nr=23706 vf=0 oom=0 stalls=0 sk=82399 stale=0 tag=0 pubbad=0 publag=207242 cmiss=0 cdup=0
+[pool] dstep=154300 win hit=93.2% nr=0.0% psl=0.04 link=81.00GB/s gather=7us copyiss=995.2us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1336us | cum hit=94.8% h=19156467 m=1056166 p=170577 B=801739192320 resident=2560 nr=22854 vf=0 oom=0 stalls=0 sk=82109 stale=0 tag=0 pubbad=0 publag=199649 cmiss=0 cdup=0
+[2026-10-23 08:04:36 TP0] Decode batch, #running-req: 4, #full token: 19456, full token usage: 0.00, #swa token: 3584, swa token usage: 0.07, cuda graph: True, gen throughput (token/s): 60.67, #queue-req: 0
+[2026-10-23 08:04:37 TP0] Prefill batch, #new-seq: 1, #new-token: 1635, #cached-token: 3072, full token usage: 0.00, swa token usage: 0.07, #running-req: 3, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 613.12
+[2026-10-23 08:04:37] INFO:     127.0.0.1:38922 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[2026-10-23 08:04:38 TP0] Decode batch, #running-req: 4, #full token: 19456, full token usage: 0.00, #swa token: 3840, swa token usage: 0.07, cuda graph: True, gen throughput (token/s): 59.96, #queue-req: 0
+[pool] dstep=154400 win hit=92.9% nr=0.0% psl=0.06 link=106.14GB/s gather=7us copyiss=1063.3us que=21 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1446us | cum hit=94.8% h=19200621 m=1060011 p=170688 B=802256209920 resident=2560 nr=23717 vf=0 oom=0 stalls=0 sk=83813 stale=0 tag=0 pubbad=0 publag=207352 cmiss=0 cdup=0
+[pool] dstep=154400 win hit=92.9% nr=0.0% psl=0.06 link=108.84GB/s gather=7us copyiss=976.1us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1410us | cum hit=94.8% h=19200549 m=1060087 p=170703 B=802331412480 resident=2560 nr=22794 vf=0 oom=0 stalls=0 sk=83774 stale=0 tag=0 pubbad=0 publag=199155 cmiss=0 cdup=0
+[pool] dstep=154400 win hit=93.0% nr=0.0% psl=0.06 link=107.04GB/s gather=9us copyiss=1017.8us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1411us | cum hit=94.8% h=19201125 m=1059507 p=170696 B=802298511360 resident=2560 nr=22865 vf=0 oom=0 stalls=0 sk=83484 stale=0 tag=0 pubbad=0 publag=199758 cmiss=0 cdup=0
+[pool] dstep=154400 win hit=92.9% nr=0.0% psl=0.06 link=105.24GB/s gather=7us copyiss=1095.5us que=21 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1447us | cum hit=94.8% h=19199888 m=1060741 p=170599 B=801837895680 resident=2560 nr=24015 vf=0 oom=0 stalls=0 sk=84629 stale=0 tag=0 pubbad=0 publag=208859 cmiss=0 cdup=0
+[2026-10-23 08:04:40 TP0] Decode batch, #running-req: 4, #full token: 19456, full token usage: 0.00, #swa token: 3840, swa token usage: 0.07, cuda graph: True, gen throughput (token/s): 91.05, #queue-req: 0
+[2026-10-23 08:04:42 TP0] Decode batch, #running-req: 4, #full token: 19456, full token usage: 0.00, #swa token: 3840, swa token usage: 0.07, cuda graph: True, gen throughput (token/s): 93.01, #queue-req: 0
+[2026-10-23 08:04:43 TP0] Decode batch, #running-req: 4, #full token: 19456, full token usage: 0.00, #swa token: 3840, swa token usage: 0.07, cuda graph: True, gen throughput (token/s): 92.77, #queue-req: 0
+[pool] dstep=154500 win hit=94.2% nr=0.0% psl=0.04 link=95.90GB/s gather=7us copyiss=999.0us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1272us | cum hit=94.8% h=19245789 m=1062847 p=170791 B=802745026560 resident=2560 nr=22805 vf=0 oom=0 stalls=0 sk=84744 stale=0 tag=0 pubbad=0 publag=199259 cmiss=0 cdup=0
+[pool] dstep=154500 win hit=94.3% nr=0.0% psl=0.04 link=96.99GB/s gather=8us copyiss=1018.0us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1283us | cum hit=94.8% h=19246367 m=1062265 p=170785 B=802716825600 resident=2560 nr=22874 vf=0 oom=0 stalls=0 sk=84450 stale=0 tag=0 pubbad=0 publag=199862 cmiss=0 cdup=0
+[pool] dstep=154500 win hit=94.3% nr=0.0% psl=0.05 link=102.44GB/s gather=7us copyiss=1130.8us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1339us | cum hit=94.8% h=19245139 m=1063490 p=170692 B=802279710720 resident=2560 nr=24027 vf=0 oom=0 stalls=0 sk=85567 stale=0 tag=0 pubbad=0 publag=208964 cmiss=0 cdup=0
+[pool] dstep=154500 win hit=94.3% nr=0.0% psl=0.05 link=105.71GB/s gather=8us copyiss=1129.7us que=20 hf_hook=0us hf_dec=1us hf_hook_max=0us hf_dec_max=1353us | cum hit=94.8% h=19245888 m=1062744 p=170784 B=802712125440 resident=2560 nr=23730 vf=0 oom=0 stalls=0 sk=84743 stale=0 tag=0 pubbad=0 publag=207458 cmiss=0 cdup=0
+[2026-10-23 08:04:45 TP0] Decode batch, #running-req: 4, #full token: 20480, full token usage: 0.00, #swa token: 3840, swa token usage: 0.07, cuda graph: True, gen throughput (token/s): 93.08, #queue-req: 0
+[2026-10-23 08:04:50 TP0] Prefill batch, #new-seq: 1, #new-token: 1581, #cached-token: 3328, full token usage: 0.00, swa token usage: 0.07, #running-req: 3, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 123.41
+[2026-10-23 08:04:50] INFO:     127.0.0.1:37296 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[hf] layer 4 took over after timeout
+[hf] layer 6 took over after timeout
+[hf] layer 15 took over after timeout
+[hf] layer 18 took over after timeout
+[2026-10-23 08:05:18 TP0] Decode batch, #running-req: 4, #full token: 20480, full token usage: 0.00, #swa token: 3840, swa token usage: 0.07, cuda graph: True, gen throughput (token/s): 4.74, #queue-req: 0
+[2026-10-23 08:05:48] SIGTERM received. signum=None frame=None. Draining requests and shutting down...
+[2026-10-23 08:05:49] Subprocess detokenizer (pid=56900) crashed with exit code -15. Triggering SIGQUIT for cleanup...
+[2026-10-23 08:05:49] SIGQUIT received. signum=None, frame=None. It usually means one child failed.
+[2026-10-23 08:05:49] Sleeping 5 seconds before crash diagnostics to let GPU activity settle.
+[2026-10-23 08:05:54] No live scheduler processes found; skipping py-spy and CUDA coredump.
+[2026-10-23 08:05:54] kill_process_tree called: parent_pid=55964, include_parent=True, pid=55964

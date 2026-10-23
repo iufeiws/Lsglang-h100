@@ -1,0 +1,38 @@
+[
+  {
+    "stage": "single-K1-ctx100000",
+    "mode": "single",
+    "K": 1,
+    "target_ctx": 100000,
+    "budget_s": 600.0,
+    "wall_common_window_s": 623.714,
+    "wall_full_span_s": 623.714,
+    "rounds_total": 15,
+    "rounds_ok": 15,
+    "failures": 0,
+    "failure_kinds": [],
+    "failure_examples": [],
+    "agg_out_tok_s_commonwindow": 28.635,
+    "agg_in_tok_s_commonwindow": 191.078,
+    "agg_out_tok_s_fullspan": 32.515,
+    "rounds_in_common_window": 13,
+    "tokens_out_in_common_window": 17860,
+    "tokens_in_in_common_window": 119178,
+    "per_stream_out_tok_s_mean": 33.336,
+    "per_stream_out_tok_s_p50": 33.118,
+    "per_stream_ms_per_step_mean": 30.036,
+    "per_stream_ms_per_step_p50": 30.195,
+    "per_stream_active_out_tok_s_mean": 32.573,
+    "ttft_s": {
+      "p50": 0.885,
+      "p95": 0.944
+    },
+    "ctx_max": 20438,
+    "ctx_min": 1084,
+    "ctx_mean": 10570.667,
+    "foreign_sock_max": 0,
+    "clean_round_share_pct": 100.0,
+    "started": "2026-10-23T09:54:48+0800",
+    "ended": "2026-10-23T10:05:11+0800"
+  }
+]
