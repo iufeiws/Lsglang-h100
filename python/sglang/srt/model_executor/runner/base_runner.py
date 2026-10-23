@@ -477,8 +477,8 @@ class BaseRunner(ABC):
     ):
         """Run a dummy forward pass for warmup/profiling.
 
-        forward_mode_override forces EXTEND/DECODE regardless of
-        is_generation (used by the PP-parallel DeepGEMM warmup).
+        forward_mode_override forces the requested mode regardless of
+        is_generation or speculation (also used by attention prewarm).
 
         buffers: a prepared static buffer set (or lightweight adapter exposing
         the same fields), sized >= this dummy shape, which _dummy_run slices to
@@ -511,12 +511,18 @@ class BaseRunner(ABC):
         _is_pd_prefill_target = (
             get_disagg().disaggregation_mode == "prefill" and not mr.is_draft_worker
         )
-        if mr.spec_algorithm.is_speculative() and not _is_pd_prefill_target:
+        if (
+            forward_mode_override is None
+            and mr.spec_algorithm.is_speculative()
+            and not _is_pd_prefill_target
+        ):
+            capture_forward_mode = ForwardMode.TARGET_VERIFY
+        if capture_forward_mode == ForwardMode.TARGET_VERIFY:
+            assert mr.spec_algorithm.is_speculative() and not _is_pd_prefill_target
             if mr.is_draft_worker:
                 assert mr.spec_algorithm.supports_target_verify_for_draft(), (
                     "This should not happen"
                 )
-            capture_forward_mode = ForwardMode.TARGET_VERIFY
             num_tokens_per_req = mr.decode_num_tokens_per_req()
         if extend_num_tokens_per_req is not None:
             assert capture_forward_mode == ForwardMode.EXTEND and (
@@ -654,12 +660,16 @@ class BaseRunner(ABC):
             global_num_tokens_cpu = None
 
         # Speculative metadata and hidden-state capture mode.
-        spec_info = create_dummy_verify_input(
-            mr.spec_algorithm,
-            buffers.custom_mask,
-            num_tokens_per_req,
-            mr.is_draft_worker,
-        )
+        # A speculative server can also warm up ordinary decode/extend. Verify
+        # metadata must describe the batch we actually built, not server mode.
+        spec_info = None
+        if capture_forward_mode == ForwardMode.TARGET_VERIFY:
+            spec_info = create_dummy_verify_input(
+                mr.spec_algorithm,
+                buffers.custom_mask,
+                num_tokens_per_req,
+                mr.is_draft_worker,
+            )
         if spec_info is not None and (
             mr.spec_algorithm.is_eagle() or mr.spec_algorithm.is_standalone()
         ):

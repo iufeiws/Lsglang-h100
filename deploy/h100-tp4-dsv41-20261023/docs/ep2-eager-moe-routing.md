@@ -4,7 +4,7 @@
 
 ## 代码确认的入口缺陷
 
-`DeepseekV4ForCausalLM.prepare_before_cuda_graph_capture` 首先明确执行 `ForwardMode.DECODE` 的 dummy forward，再执行 TARGET_VERIFY。它们在 `nullcontext()` 内运行，刻意允许首次 JIT/模块加载，不在 CUDA capture 或 `model_capture_mode()` 内。
+`DeepseekV4ForCausalLM.prepare_before_cuda_graph_capture` 首先请求 `ForwardMode.DECODE` 的 dummy forward，再请求默认模式。后续检查发现，speculative 模式下 `_dummy_run` 会把显式 DECODE 再次覆盖成 TARGET_VERIFY，所以此前“首轮实际执行 DECODE”的判断不成立；修正见 [dummy-forward-mode-fix.md](dummy-forward-mode-fix.md)。两轮都在 `nullcontext()` 内运行，刻意允许首次 JIT/模块加载，不在 CUDA capture 或 `model_capture_mode()` 内。
 
 旧版 `FusedMoE.run_moe_core` 只用 capture 标志选择 `_cpu_decode`；在 eager 情况下会落入 prefill 分支。这解释了为什么 decode 预热的栈上出现 `_cpu_prefill`，不能据此反推当前工作负载是真正的 prefill。
 

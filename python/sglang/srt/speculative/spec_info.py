@@ -506,7 +506,9 @@ def create_dummy_verify_input(
         spec_info = DFlashVerifyInput(
             draft_token=None,
             positions=None,
-            draft_token_num=spec.speculative_num_draft_tokens,
+            # DSpark's draft width can differ from the target verify width.
+            # Match the runner's allocated rows, as graph capture already does.
+            draft_token_num=num_tokens_per_req,
             custom_mask=None,
             capture_hidden_mode=(
                 CaptureHiddenMode.NULL if is_draft_worker else CaptureHiddenMode.FULL

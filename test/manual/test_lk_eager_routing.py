@@ -101,9 +101,9 @@ def test_no_batch_preserves_capture_fallback(flag):
 @pytest.mark.parametrize("mode", [Mode.DECODE, Mode.TARGET_VERIFY])
 @pytest.mark.parametrize("raise_in_model", [False, True])
 def test_actual_dummy_run_execution_scope_publishes_and_restores_batch(mode, raise_in_model):
-    # Execute the production _dummy_run's final execution scope. Metadata/buffer
-    # construction before this scope needs a GPU; the model callback below uses
-    # the production MoE selector and batch-width helper.
+    # Execute the production _dummy_run's final execution scope. The complete
+    # CPU-backed builder is covered in test_dummy_forward_mode.py; this test
+    # connects the scope directly to the production MoE selector.
     path = SRT / "model_executor/runner/base_runner.py"
     tree = ast.parse(path.read_text())
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "BaseRunner")
