@@ -23,6 +23,7 @@
 - `--enable-decoder-swa-bounded-replay`、`--disable-flashinfer-autotune`、端口 18010
 - **`CUDA_LAUNCH_BLOCKING=""`（2026-10-23 起置空；置空则脚本不导出。原为 `"1"` 仅用于故障归因，实测使解码慢 ~4.2 ms/step，见 `docs/ab-cuda-launch-blocking.md`）**
 - 专家：`LK_GPU_RESIDENT_MOE_LAYERS="0-19"`（20 层全驻留）+ `LK_POOL_SLOTS=192`（后 20 层热池；单槽 4.4824 MiB ⇒ slab 16.81 GiB/卡）
+- **EP2 变体（已试，未起）**：`--ep-size 2` 时每 rank 192 专家、单槽 8.9648 MiB（×2）⇒ 对应槽数 104；slab 18.21 GiB/卡、`available_bytes=7.19 GB`、`full=3756544`；初始化阶段 rank1 SIGSEGV（见 `docs/ep2-tp4-104slots.md`）
 - `PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"`（消除权重转换的池化碎片，实测 −7.8 GB/卡）
 - **dspark（spec decode）**：`--speculative-algorithm DSPARK --speculative-dspark-block-size 5 --speculative-attention-mode decode`
 - `LK_VERIFY_RESIDENT=1`（让 6 行 verify 全部走 GPU 热池）
@@ -79,8 +80,11 @@ bash status.sh / bash health.sh                   # 看状态
   非退化 16 prompt 负载：decode p50 ≈ 141–162 tok/s、accept len p50 ≈ 2.6–2.7
 - 门控：`LK_VERIFY_GEMM`（默认 true）
 
-## HiCache（本轮已开启，未验证）
-- conf 增：`--enable-hierarchical-cache`、`--hicache-ratio 6`
+## HiCache（已开启并验证命中）
+- conf：`--enable-hierarchical-cache`、`--hicache-ratio 6`
+- 每 rank 主机分配 28.47 GB（swa 9.04 + c1 6.96 + c2 10.45 + c1_indexer 0.81 + c2_indexer 1.21），4 rank 合计 113.88 GB；`hicache_attached=True`
+- 命中实测：6 条 ~500K token 随机 prompt 按 1..6,1..6 循环，第 2 遍 `#cached-token` = 499,712–500,992（99.7–99.97%），耗时 240–550 s → 1.7–3.3 s；详见 `docs/hicache-6x500k-loop.md`
+- 同口径 decode：HiCache 关 162.3 vs 开 161.5 tok/s（accept 2.59 vs 2.60）
 - 准备与参数语义见 `docs/hicache-prep.md`（DSV4 拒绝 `--hicache-size`，必须显式 ratio）
 
 ## 目录
