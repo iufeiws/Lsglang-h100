@@ -2,6 +2,10 @@
 
 本补丁修改执行代码，不增加采样诊断开关。
 
+- **EP 下的 LK 路由编号**：StandardDispatcher 按层的实际执行位置决定是否
+  映射专家编号。非 GPU 常驻的 LK 层使用本地编号，外组专家标记 `-1`；
+  常驻 FlashInfer 层继续接收全局编号。覆盖 CPU prefill、GPU pool prefill
+  和 capture/decode，不更改路由权重，不在各 EP 组内重新归一化。
 - **Verify 热池计算**：SM90、MXFP4、group32、SiLU、`LK_VERIFY_RESIDENT=1`
   时，按专家合并最多 16 行，用 Tensor Core GEMM 复用权重。gate/up 使用
   split-K；SiLU 每个 route 只计算一次。两次 GEMM 均为 W4A16：MXFP4 权重
@@ -64,3 +68,34 @@ Q padding 就是原先平均接受长度 1.8 的全部原因。
 
 补丁针对仓库源码。服务必须实际导入更新后的源码并重新启动，运行中的旧进程不会
 自动加载修改。无需修改 gamma、采样温度、接受阈值或丢弃 CPU miss。
+
+## 2026-10-24：TP4 + EP2 启动修复
+
+用户报告前版在 TP4/EP1 下接受长度约 2.7、解码约 140 tok/s；EP2 在预热后
+原生线程 SIGSEGV，Rank 1 以 -11 退出。该日志尾部本身未给出原生故障函数，
+也不是 OOM 的证据。
+
+源码确认一个可复现的接口错误：`flashinfer_mxfp4` 让 StandardDispatcher
+跳过全局到本地编号转换，但 `FusedMoE.run_moe_core` 对非 GPU 常驻层绕过
+FlashInfer，直接调用 LK。`_fill_lk_cfg` 给 LK 的 `expert_num` 是本地专家数。
+因此 EP2 下大小 192 的专家表会收到 192–383 的全局编号；EP1 的 384 个专家
+掩盖了此错误。池 snapshot 也按本地专家编号寻址。
+
+| 分组 | 持有的全局编号 | 传给 LK 的编号 | 其他组编号 |
+|---|---|---|---|
+| EP0（TP0/TP1） | 0–191 | 0–191 | -1 |
+| EP1（TP2/TP3） | 192–383 | 0–191 | -1 |
+
+新增 `test/manual/test_lk_ep_dispatch.py`：31 项 CPU 回归覆盖 EP1/2/4、两类
+执行位置、不同 runner、负编号、shared slot、跨组加和，以及三个 LK 入口。
+用修改前的源码运行两个 EP rank × 三个入口的 6 项测试，全部在 LK 调用边界
+检测到越界编号；修改后通过。测试执行生产 dispatcher 和 run_moe_core 的 AST，
+以替身检查原生入口参数，未实际执行 lk_moe 原生线程或复现 SIGSEGV。
+
+```bash
+python -m pytest -q -c /dev/null test/manual/test_lk_ep_dispatch.py
+TRITON_INTERPRET=1 python -m pytest -q -c /dev/null test/manual/test_lk_ep_dispatch.py test/manual/test_lk_verify_h100.py
+```
+
+本地没有 H100，EP2 完整启动及吞吐仍需部署验证；此次修复不宣称已排除所有
+原生线程故障。TP4/EP1 不触发专家编号转换，原 W4A16 verify kernel 未修改。
