@@ -1,2 +1,0 @@
-[console_scripts]
-sgl-eval = sgl_eval.cli:main

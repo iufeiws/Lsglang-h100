@@ -74,5 +74,6 @@ bash status.sh / bash health.sh                   # 看状态
 - `scripts/` 启动/停止/状态/健康检查 + 压测脚本（`bench256_streams.py` 等）
 - `configs/` 当前 conf + 最近 3 个 effective 快照 + hicache 变体
 - `humming/patches/` 我们的补丁与 apply/rollback（**未应用**）；`humming/stash/` 曾应用的版本
-- `docs/` 全部分析报告（含 hicache-prep.md、显存清单、SEGV/时序时间线、dspark/吞吐报告与图）
+- `docs/`：**只保留"实际改动"的报告**——`reject-sampling-q-fix.md`（已应用的代码修复）、`ab-cuda-launch-blocking.md`（已应用的配置改动 + 单变量实测）、`hicache-prep.md`（HiCache 准备态，**未启用**）。
+  调查/验证/分析类文档（verify-*、probe-*、吞吐与长测报告、显存与时间线清点等）**一律未包含**：其中的推断与结论多数未定论，放进来会误导使用者。
 （**未包含**：`logs/` 运行日志 81 MB、证据大件（lk_moe wheel/so、gsm8k parquet），均留在原机 `Lsglang/logs` 与 `Lsglang/docs/_big_not_committed/`）
