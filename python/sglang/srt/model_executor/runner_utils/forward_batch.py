@@ -37,6 +37,19 @@ def get_forward_batch() -> "ForwardBatch":
     return batch
 
 
+def is_decode_or_verify_batch() -> bool:
+    """Select the LK decode ABI by workload, including eager warmup.
+
+    CUDA capture is an execution mechanism, not a forward mode. In particular,
+    cubin prewarm runs decode/verify eagerly before any graph is recorded.
+    """
+    batch = _current_batch.get()
+    return batch is not None and (
+        batch.forward_mode.is_decode_or_idle()
+        or batch.forward_mode.is_target_verify()
+    )
+
+
 def get_verify_rows_per_request(num_rows: int) -> int:
     """Fixed verify width for MoE, otherwise one independent row per token.
 

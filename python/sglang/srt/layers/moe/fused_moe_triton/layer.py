@@ -80,8 +80,11 @@ from sglang.srt.model_executor.runner_backend_utils.tc_piecewise_cuda_graph impo
     get_tc_piecewise_forward_context,
     is_in_tc_piecewise_cuda_graph,
 )
+from sglang.srt.model_executor.runner_utils.forward_batch import (
+    get_verify_rows_per_request,
+    is_decode_or_verify_batch,
+)
 from sglang.srt.model_loader.weight_utils import narrow_padded_param_and_loaded_weight
-from sglang.srt.model_executor.runner_utils.forward_batch import get_verify_rows_per_request
 from sglang.srt.runtime_context import (
     get_exec,
     get_global_dwdp_manager,
@@ -1735,9 +1738,14 @@ class FusedMoE(torch.nn.Module):
                 dispatch_output=dispatch_output,
             )
         
-        # 2. CPU resident layer: mixed path or capture mode
-        # Decode: CUDA capturing or capture mode
-        if torch.cuda.is_current_stream_capturing() or get_is_capture_mode():
+        # Eager decode/verify (including cubin prewarm) needs the same LK ABI
+        # as captured decode. Capture flags alone misclassify it as prefill.
+        # Keep the capture fallback for callers without a published batch.
+        if (
+            is_decode_or_verify_batch()
+            or torch.cuda.is_current_stream_capturing()
+            or get_is_capture_mode()
+        ):
             lk_result = self._cpu_decode(
                 dispatch_output.hidden_states,
                 dispatch_output.topk_output.topk_weights,
@@ -2689,6 +2697,13 @@ class FusedMoE(torch.nn.Module):
 
         rows_per_token = get_verify_rows_per_request(bs)
         real_tokens = bs // rows_per_token
+
+        if get_bool_env_var("LK_NATIVE_TRACE", default="false"):
+            logger.info(
+                "[lk-native] submit cpu_decode layer=%s rows=%d "
+                "rows_per_request=%d requests=%d",
+                self.layer_name, bs, rows_per_token, real_tokens,
+            )
 
         covered = (
             self._pool_layer_info is not None
