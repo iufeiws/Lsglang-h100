@@ -2041,9 +2041,15 @@ class FusedMoE(torch.nn.Module):
                 delattr(self, weight)
                 
     def _get_processes_info(self) -> tuple[int, int, int]: 
-        if self.moe_ep_size > 1:
-            return self.moe_ep_size, self.moe_ep_rank, torch.cuda.current_device()
-        return self.moe_tp_size, self.moe_tp_rank, torch.cuda.current_device()
+        # LK uses these fields to partition host threads / NUMA resources
+        # between GPU workers, not to index the local expert weights. In a
+        # TP4/EP2 deployment there are four workers, not two: EP ranks alone
+        # alias TP0/TP1 and TP2/TP3 onto the same host-worker identity.
+        return (
+            self.moe_ep_size * self.moe_tp_size,
+            self.moe_ep_rank * self.moe_tp_size + self.moe_tp_rank,
+            torch.cuda.current_device(),
+        )
 
     def _fill_lk_cfg(self, cfg):
         # Geometry + tuning surface, ONE definition shared by all five
@@ -2728,14 +2734,37 @@ class FusedMoE(torch.nn.Module):
  
 
     def _cpu_prefill(self, hidden_states, topk_weights, topk_ids): 
+        # The native ABI takes raw pointers, with no tensor stride metadata.
         expert_ids_cpu = topk_ids.to(dtype=torch.int32, device='cpu', non_blocking=True)
         weights_cpu = topk_weights.to(dtype=torch.float32, device='cpu', non_blocking=True)
         hidden_states_cpu = hidden_states.to(device='cpu', non_blocking=True)
-        output_cpu = torch.empty_like(hidden_states, dtype=torch.float32, device='cpu') 
+        output_cpu = torch.empty(hidden_states.shape, dtype=torch.float32, device='cpu')
         
         current_stream = torch.cuda.current_stream()
         current_stream.synchronize()
-         
+        # Do CPU copies only after the asynchronous D2H transfers have joined.
+        expert_ids_cpu = expert_ids_cpu.contiguous()
+        weights_cpu = weights_cpu.contiguous()
+        hidden_states_cpu = hidden_states_cpu.contiguous()
+        trace = get_bool_env_var("LK_NATIVE_TRACE", default="false")
+        if trace:
+            logger.info(
+                "[lk-native] enter cpu_prefill layer=%s workers=%s "
+                "shape=%s dtype=%s topk=%s local_routes=%d/%d",
+                self.layer_name, self._get_processes_info(),
+                tuple(hidden_states_cpu.shape), hidden_states_cpu.dtype,
+                tuple(expert_ids_cpu.shape),
+                int((expert_ids_cpu >= 0).sum()), expert_ids_cpu.numel(),
+            )
+
+        # An EP rank can own none of this batch's routes (especially for the
+        # identical dummy tokens in prewarm). Its contribution is exactly zero;
+        # do not submit an empty expert workload to the native thread pool.
+        if not torch.any(expert_ids_cpu >= 0):
+            if trace:
+                logger.info("[lk-native] skip empty cpu_prefill layer=%s", self.layer_name)
+            return torch.zeros_like(hidden_states)
+
         self.lk_moe.cpu_prefill(
             hidden_states.size(0),
             expert_ids_cpu.size(1),
@@ -2745,6 +2774,8 @@ class FusedMoE(torch.nn.Module):
             output_cpu.data_ptr(),
             False,
         )
+        if trace:
+            logger.info("[lk-native] exit cpu_prefill layer=%s", self.layer_name)
 
         output_gpu = output_cpu.to(torch.cuda.current_device(), dtype=hidden_states.dtype, non_blocking=True) 
         
