@@ -130,6 +130,14 @@ class StandardDispatcher(BaseDispatcher):
             or backend.is_flashinfer_megamoe()
             or self.enable_flashinfer_mxfp4_moe
         )
+        # Hybrid LK layers bypass the selected GPU runner in run_moe_core.
+        # Their CPU weights and GPU pool are indexed by *local* expert ID,
+        # even when the resident FlashInfer layers consume global IDs.
+        # Forwarding global IDs to LK with EP>1 can index past expert_num.
+        layer = getattr(moe_runner_config, "layer", None)
+        if getattr(layer, "is_gpu_resident_layer", True) is False:
+            self.skip_local_expert_mapping = False
+            self.use_aiter_moe_runner = False
         self.num_experts = moe_runner_config.num_experts
         self.num_local_experts = moe_runner_config.num_local_experts
         self.num_local_shared_experts = moe_runner_config.num_fused_shared_experts
