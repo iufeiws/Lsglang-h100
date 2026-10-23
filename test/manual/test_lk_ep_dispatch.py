@@ -144,6 +144,7 @@ def test_all_lk_entry_points_receive_local_ids(mode, rank):
     namespace = dict(
         torch=torch,
         get_is_capture_mode=lambda: mode == "capture",
+        is_decode_or_verify_batch=lambda: False,
         Mxfp4FlashinferTrtllmMoEMethod=type(None),
         Mxfp4FlashinferCutlassMoEMethod=type(None),
         Mxfp4MarlinMoEMethod=type(None),

@@ -5469,9 +5469,9 @@ class DeepseekV4ForCausalLM(nn.Module):
         inside the capture region (warmup runs them on the host). On a mixed
         SM86+SM120 group that first ``cuModuleLoadData`` inside capture
         deadlocks against the peer rank's captured collective. Run one real
-        dummy forward per captured-M bucket here -- under ``model_capture_mode``
-        so it takes the SAME paged-indexer + device-metadata branch capture
-        will -- so every cubin is resident before the graph is recorded.
+        dummy forward per captured-M bucket here, eagerly so first-load JIT
+        work is allowed before graph recording. The runner publishes the real
+        DECODE/TARGET_VERIFY batch so MoE still selects its decode ABI.
 
         Every decision that could differ by rank or arch is logged with the
         ``[attn-prewarm]`` tag and the ranks rendezvous on a barrier, so a
