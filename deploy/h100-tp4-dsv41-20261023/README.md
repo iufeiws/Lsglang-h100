@@ -21,6 +21,7 @@
 - `--mem-fraction-static 0.88`、`--max-running-requests 16`、`--context-length 1048576`、`--max-total-tokens 4194304`
 - `--chunked-prefill-size 8192`、`--moe-runner-backend flashinfer_mxfp4`、**不传** `--flashinfer-mxfp4-moe-precision`（=W4A16）
 - `--enable-decoder-swa-bounded-replay`、`--disable-flashinfer-autotune`、端口 18010
+- **`CUDA_LAUNCH_BLOCKING=""`（2026-10-23 起置空；置空则脚本不导出。原为 `"1"` 仅用于故障归因，实测使解码慢 ~4.2 ms/step，见 `docs/ab-cuda-launch-blocking.md`）**
 - 专家：`LK_GPU_RESIDENT_MOE_LAYERS="0-19"`（20 层全驻留）+ `LK_POOL_SLOTS=128`（后 20 层热池）
 - `PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"`（消除权重转换的池化碎片，实测 −7.8 GB/卡）
 - **dspark（spec decode）**：`--speculative-algorithm DSPARK --speculative-dspark-block-size 5 --speculative-attention-mode decode`
