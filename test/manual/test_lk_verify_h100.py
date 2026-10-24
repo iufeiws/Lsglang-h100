@@ -14,6 +14,8 @@ from unittest.mock import patch
 
 import pytest
 import torch
+import triton
+import triton.language as tl
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -61,6 +63,94 @@ def interpreter_bf16_dot(monkeypatch):
 
         monkeypatch.setattr(InterpreterBuilder, "create_dot", dot)
         monkeypatch.setattr(InterpreterBuilder, "cast_impl", cast)
+        # Execute this small PTX integer program in NumPy. This validates its
+        # byte selectors/sign insertion, not GPU instruction execution; the
+        # identical tests use real PRMT on CUDA, and --compile-sm90 uses ptxas.
+        def inline_asm(builder, asm, constraints, values, types, pure, pack):
+            import numpy as np
+            import re
+
+            assert constraints == "=h,=h,r" and pack == 1
+            registers = {"$2": values[0].data.astype(np.uint32)}
+
+            def value(name):
+                return registers[name] if name in registers else np.uint32(int(name, 0))
+
+            for line in asm.strip().strip("{}").split(";"):
+                line = line.strip()
+                if not line or line.startswith(".reg"):
+                    continue
+                if "{$0, $1}" in line:
+                    word = value(line.rsplit(",", 1)[1].strip())
+                    registers["$0"] = (word & 65535).astype(np.uint16)
+                    registers["$1"] = (word >> 16).astype(np.uint16)
+                    continue
+                op, operands = line.split(None, 1)
+                dst, *args = re.split(r",\s*", operands)
+                args = [value(arg) for arg in args]
+                if op == "mov.b32":
+                    result = args[0]
+                elif op == "and.b32":
+                    result = args[0] & args[1]
+                elif op == "or.b32":
+                    result = args[0] | args[1]
+                elif op == "shl.b32":
+                    result = args[0] << args[1]
+                elif op == "prmt.b32":
+                    a, b, selector = args
+                    source = np.uint64(a) | (np.uint64(b) << np.uint64(32))
+                    result = np.zeros_like(selector, dtype=np.uint32)
+                    for byte in range(4):
+                        index = (selector >> (4 * byte)) & 15
+                        assert (index < 8).all()
+                        picked = (source >> (index.astype(np.uint64) * 8)) & 255
+                        result |= picked.astype(np.uint32) << (8 * byte)
+                else:
+                    raise AssertionError(op)
+                registers[dst] = result
+            results = [
+                TensorHandle(registers[f"${i}"].view(np.float16), tl.float16)
+                for i in range(2)
+            ]
+            return SimpleNamespace(get_result=lambda i: results[i])
+
+        monkeypatch.setattr(InterpreterBuilder, "create_inline_asm", inline_asm)
+
+
+@triton.jit
+def unpack_bytes(Packed, Out):
+    idx = tl.arange(0, 256)
+    low, high = kernel._unpack_e2m1_prmt(tl.load(Packed + idx))
+    tl.store(Out + idx * 2, low)
+    tl.store(Out + idx * 2 + 1, high)
+
+
+def test_prmt_exhaustive_packed_bytes_including_signed_zero():
+    packed = torch.arange(256, dtype=torch.int32).to(torch.uint8).to(DEVICE)
+    out = torch.empty(256, 2, dtype=torch.float16, device=DEVICE)
+    unpack_bytes[(1,)](packed, out)
+    lut = torch.tensor([0., .5, 1., 1.5, 2., 3., 4., 6., -0., -.5, -1., -1.5, -2., -3., -4., -6.], dtype=torch.float16)
+    codes = torch.arange(256)
+    expected = torch.stack((lut[codes & 15], lut[codes >> 4]), 1)
+    assert torch.equal(out.cpu().view(torch.int16), expected.view(torch.int16))
+
+
+@triton.jit
+def load_scaled_tile(W, S, Out, USE_PRMT: tl.constexpr):
+    kk = tl.program_id(0) * 64 + tl.arange(0, 64)
+    nn = tl.arange(0, 32)
+    vals = kernel._load_mxfp4(W, S, tl.full((), 0, tl.int32), kk, nn, 512, 32, 8192, 512, USE_PRMT)
+    tl.store(Out + kk[:, None] * 32 + nn[None, :], vals)
+
+
+def test_prmt_scale_bytes_match_reference_including_extremes():
+    w = torch.arange(8192, dtype=torch.int32).to(torch.uint8).to(DEVICE)
+    s = torch.arange(512, dtype=torch.int32).to(torch.uint8).to(DEVICE)
+    actual = torch.empty(512, 32, device=DEVICE)
+    expected = torch.empty_like(actual)
+    load_scaled_tile[(8,)](w, s, actual, True)
+    load_scaled_tile[(8,)](w, s, expected, False)
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0, equal_nan=True)
 
 
 def packed_weights(experts, n, k, seed):
@@ -303,6 +393,7 @@ def compile_sm90():
                 BN=32,
                 BK=64,
                 BK_ROUTES=8,
+                USE_PRMT=True,
             ),
         ),
         (
@@ -331,6 +422,7 @@ def compile_sm90():
                 BN=64,
                 BK=64,
                 BK_ROUTES=8,
+                USE_PRMT=True,
             ),
         ),
         (
@@ -339,18 +431,88 @@ def compile_sm90():
             dict(TOPK=6, H=5120, BLOCK=256),
         ),
     ]
+    import subprocess
+    import tempfile
+    from triton.backends.nvidia.compiler import get_ptxas
+
     for fn, signature, constants in cases:
-        compiled = triton.compile(
-            ASTSource(fn, signature, constants), target=GPUTarget("cuda", 90, 32)
-        )
-        ptx = compiled.asm["ptx"]
-        if fn in (kernel.gate_up, kernel.down):
-            assert "mma.sync" in ptx and ".f32.bf16.bf16.f32" in ptx
-            assert ".tf32" not in ptx
-        print(
-            f"{fn.__name__}: SM90 compiled; shared={compiled.metadata.shared}; mma={ptx.count('mma.sync')}"
-        )
+        is_gemm = fn in (kernel.gate_up, kernel.down)
+        for use_prmt in ([False, True] if is_gemm else [None]):
+            for width in ([576, 1152] if is_gemm else [576]):
+                const = {**constants}
+                if is_gemm:
+                    const.update(I=width, USE_PRMT=use_prmt,
+                                 W_BYTES=5120 * width // 2, S_BYTES=5120 * width // 32)
+                compiled = triton.compile(
+                    ASTSource(fn, signature, const), target=GPUTarget("cuda", 90, 32)
+                )
+                ptx = compiled.asm["ptx"]
+                if is_gemm:
+                    assert "mma.sync" in ptx and ".f32.bf16.bf16.f32" in ptx
+                    assert ".tf32" not in ptx
+                    if use_prmt:
+                        assert "prmt.b32" in ptx
+                with tempfile.TemporaryDirectory() as tmp:
+                    source = Path(tmp) / "kernel.ptx"
+                    source.write_text(ptx)
+                    asm = subprocess.run(
+                        [get_ptxas(90).path, "-v", "--gpu-name=sm_90a", str(source), "-o", str(Path(tmp) / "kernel.cubin")],
+                        capture_output=True, text=True, check=True,
+                    )
+                    resources = [line.strip() for line in asm.stderr.splitlines()
+                                 if "registers" in line or "spill" in line]
+                print(f"{fn.__name__}: I={width} prmt={use_prmt} shared={compiled.metadata.shared}; {resources}")
 
 
-if __name__ == "__main__" and sys.argv[1:] == ["--compile-sm90"]:
-    compile_sm90()
+def benchmark(output):
+    import json
+    import triton.testing
+
+    assert torch.cuda.get_device_capability()[0] == 9
+    records = []
+    for width in (576, 1152):
+        rows, topk, h, experts = 6, 6, 5120, 7
+        routes = rows * topk
+        x = torch.randn(rows, h, device="cuda", dtype=torch.bfloat16)
+        weights = torch.softmax(torch.randn(rows, topk, device="cuda"), -1)
+        w, s = [], []
+        for n, k in ((width, h), (width, h), (h, width)):
+            w.append(torch.randint(0, 256, (experts, n // 32, k // 2, 32), device="cuda", dtype=torch.uint8))
+            s.append(torch.randint(121, 126, (experts, n // 32, k // 32, 32), device="cuda", dtype=torch.uint8))
+        geo = dict(I=width, k=topk, NGK=16, weight_addr=w, scale_addr=s,
+                   slot_bytes=[t[0].numel() for t in w],
+                   slot_scale_bytes=[t[0].numel() for t in s], swiglu_limit=0.)
+        partial = torch.empty(16, routes, 2 * width, device="cuda")
+        activated = torch.empty(routes, width, device="cuda", dtype=torch.bfloat16)
+        parts = torch.empty(routes, h, device="cuda")
+        out = torch.empty(rows, h, device="cuda")
+        for misses in (False, True):
+            slots = (torch.arange(routes, device="cuda", dtype=torch.int32) % experts).reshape(rows, topk)
+            if misses:
+                slots.view(-1)[::3] = -1
+            def call(use_prmt):
+                kernel.launch(x, slots, weights, geo, partial, activated, parts, out, use_prmt=use_prmt)
+            call(False)
+            expected = out.clone()
+            call(True)
+            assert torch.isfinite(out).all()
+            torch.testing.assert_close(out, expected, rtol=3e-5, atol=3e-5)
+            old_ms = triton.testing.do_bench_cudagraph(lambda: call(False))
+            new_ms = triton.testing.do_bench_cudagraph(lambda: call(True))
+            row = dict(I=width, mixed_miss=misses, reference_us=old_ms*1000, prmt_us=new_ms*1000)
+            records.append(row)
+            print(json.dumps(row), flush=True)
+    Path(output).write_text(json.dumps(records, indent=2))
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--compile-sm90", action="store_true")
+    parser.add_argument("--bench", action="store_true")
+    parser.add_argument("--output", default="h100_pool_prmt_bench.json")
+    args = parser.parse_args()
+    if args.compile_sm90:
+        compile_sm90()
+    if args.bench:
+        benchmark(args.output)

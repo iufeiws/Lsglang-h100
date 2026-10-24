@@ -39,7 +39,7 @@ def _group_rows(
 
 
 @triton.jit
-def _load_mxfp4(
+def _load_mxfp4_reference(
     W,
     S,
     slot,
@@ -79,6 +79,62 @@ def _load_mxfp4(
 
 
 @triton.jit
+def _unpack_e2m1_prmt(packed):
+    # Eight FP16 magnitudes have zero low bytes. PRMT looks up the two
+    # high bytes together, then inserts both sign bits. No FP arithmetic,
+    # exponential, or rounding is involved in the E2M1 -> FP16 conversion.
+    return tl.inline_asm_elementwise(
+        """{
+        .reg .b32 p, sel, hi, signs, tmp;
+        mov.b32 p, $2;
+        and.b32 sel, p, 7;
+        shl.b32 tmp, p, 4;
+        and.b32 tmp, tmp, 0x700;
+        or.b32 sel, sel, tmp;
+        prmt.b32 hi, 0x3e3c3800, 0x46444240, sel;
+        shl.b32 hi, hi, 8;
+        and.b32 signs, p, 8;
+        shl.b32 signs, signs, 12;
+        and.b32 tmp, p, 128;
+        shl.b32 tmp, tmp, 24;
+        or.b32 signs, signs, tmp;
+        or.b32 hi, hi, signs;
+        mov.b32 {$0, $1}, hi;
+        }""",
+        constraints="=h,=h,r",
+        args=[packed.to(tl.uint32)],
+        dtype=(tl.float16, tl.float16),
+        is_pure=True,
+        pack=1,
+    )
+
+
+@triton.jit
+def _load_mxfp4(
+    W, S, slot, kk, nn, K: tl.constexpr, N: tl.constexpr,
+    W_BYTES: tl.constexpr, S_BYTES: tl.constexpr, USE_PRMT: tl.constexpr,
+):
+    if not USE_PRMT:
+        return _load_mxfp4_reference(W, S, slot, kk, nn, K, N, W_BYTES, S_BYTES)
+    # K tiles begin on an even element. Load each packed byte and its scale
+    # once for both adjacent K elements, then restore the GEMM's [K, N] tile.
+    even, _ = tl.split(tl.reshape(kk, (kk.shape[0] // 2, 2)))
+    wp = W.to(tl.pointer_type(tl.uint8))
+    sp = S.to(tl.pointer_type(tl.uint8))
+    mask = (even[:, None] < K) & (nn[None, :] < N)
+    off = (nn[None, :] // 32) * (K // 2 * 32) + (even[:, None] // 2) * 32 + nn[None, :] % 32
+    packed = tl.load(wp + slot.to(tl.int64) * W_BYTES + off, mask, 0)
+    low, high = _unpack_e2m1_prmt(packed)
+    soff = (nn[None, :] // 32) * (K // 32 * 32) + (even[:, None] // 32) * 32 + nn[None, :] % 32
+    exponent = tl.load(sp + slot.to(tl.int64) * S_BYTES + soff, mask, 0).to(tl.uint32)
+    scale = (exponent << 23).to(tl.float32, bitcast=True)
+    scale = tl.where(exponent == 0, 5.8774718e-39, scale)
+    low = low.to(tl.float32) * scale
+    high = high.to(tl.float32) * scale
+    return tl.reshape(tl.permute(tl.join(low, high), (0, 2, 1)), (kk.shape[0], nn.shape[0]))
+
+
+@triton.jit
 def gate_up(
     X,
     Slots,
@@ -98,6 +154,7 @@ def gate_up(
     BN: tl.constexpr = 32,
     BK: tl.constexpr = 64,
     BK_ROUTES: tl.constexpr = 8,
+    USE_PRMT: tl.constexpr = True,
 ):
     leader, col, split = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     slot, rows, routes, live, owns = _group_rows(
@@ -114,8 +171,8 @@ def gate_up(
         x = tl.load(
             X + rows[:, None] * H + kk[None, :], live[:, None] & (kk[None, :] < H), 0
         ).to(tl.bfloat16)
-        g = _load_mxfp4(GW, GS, slot, kk, nn, H, I, W_BYTES, S_BYTES).to(tl.bfloat16)
-        u = _load_mxfp4(UW, US, slot, kk, nn, H, I, W_BYTES, S_BYTES).to(tl.bfloat16)
+        g = _load_mxfp4(GW, GS, slot, kk, nn, H, I, W_BYTES, S_BYTES, USE_PRMT).to(tl.bfloat16)
+        u = _load_mxfp4(UW, US, slot, kk, nn, H, I, W_BYTES, S_BYTES, USE_PRMT).to(tl.bfloat16)
         ag = tl.dot(x, g, ag)
         au = tl.dot(x, u, au)
     off = (split * N_ROWS * TOPK + routes[:, None]) * (2 * I) + nn[None, :]
@@ -170,6 +227,7 @@ def down(
     BN: tl.constexpr = 64,
     BK: tl.constexpr = 64,
     BK_ROUTES: tl.constexpr = 8,
+    USE_PRMT: tl.constexpr = True,
 ):
     leader, col = tl.program_id(0), tl.program_id(1)
     slot, rows, routes, live, owns = _group_rows(
@@ -186,7 +244,7 @@ def down(
             live[:, None] & (kk[None, :] < I),
             0,
         ).to(tl.bfloat16)
-        w = _load_mxfp4(DW, DS, slot, kk, nn, I, H, W_BYTES, S_BYTES).to(tl.bfloat16)
+        w = _load_mxfp4(DW, DS, slot, kk, nn, I, H, W_BYTES, S_BYTES, USE_PRMT).to(tl.bfloat16)
         acc = tl.dot(a, w, acc)
     weight = tl.load(Weights + routes, live, 0).to(tl.float32)
     tl.store(
@@ -210,13 +268,14 @@ def combine(
     tl.store(Out + row * H + col, acc, col < H)
 
 
-def launch(hidden, slot_table, weights, geo, partial, activated, parts, out):
+def launch(hidden, slot_table, weights, geo, partial, activated, parts, out, *, use_prmt=True):
     """Run on the caller's pool stream, using preallocated graph-safe buffers."""
     rows, h = hidden.shape
     i, topk, splits = geo["I"], geo["k"], geo["NGK"]
     routes = rows * topk
     common = dict(
-        N_ROWS=rows, TOPK=topk, H=h, I=i, BK_ROUTES=triton.next_power_of_2(topk)
+        N_ROWS=rows, TOPK=topk, H=h, I=i, BK_ROUTES=triton.next_power_of_2(topk),
+        USE_PRMT=use_prmt,
     )
     gate_up[(routes, triton.cdiv(i, 32), splits)](
         hidden,
