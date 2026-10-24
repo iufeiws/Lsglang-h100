@@ -32,6 +32,7 @@ from sglang.kernels.ops.moe.lk_verify_uva import (  # noqa: E402
     HostExperts,
     UvaScratch,
     launch_draft_miss_uva,
+    matches_host_experts,
 )
 
 _E2M1 = torch.tensor([0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6])
@@ -65,6 +66,40 @@ def _reference(x, ids, weights, slot_tab, w13, s13, w2, s2, rows_per_request, li
     return out
 
 
+def _scattered_host(w13, s13, w2, s2, placement, device):
+    """Store expert e at position placement[e] of separate buffers, as a backend might."""
+    storage, tables = [], []
+    for t in (w13, s13, w2, s2):
+        buf = torch.empty_like(t)
+        buf[placement] = t
+        if device == "cuda":
+            buf = buf.pin_memory()
+        step = buf[0].numel() * buf.element_size()
+        storage.append(buf)
+        tables.append([buf.data_ptr() + int(placement[e]) * step for e in range(t.shape[0])])
+    host = HostExperts.from_addresses(
+        w13=tables[0], s13=tables[1], w2=tables[2], s2=tables[3],
+        hidden=w13.shape[2] * 2, intermediate=w13.shape[1] // 2, device=device)
+    return host, storage
+
+
+def test_self_check_rejects_wrong_addresses():
+    """A provider whose addresses do not hold sglang's expert bytes must be refused."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    E, H, I = 4, 64, 64
+    w13 = torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8)
+    s13 = torch.randint(118, 124, (E, 2 * I, H // 32), dtype=torch.uint8)
+    w2 = torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8)
+    s2 = torch.randint(118, 124, (E, H, I // 32), dtype=torch.uint8)
+    refs = dict(w13=w13, s13=s13, w2=w2, s2=s2, experts=range(E))
+    host, _storage = _scattered_host(w13, s13, w2, s2, torch.tensor([2, 0, 3, 1]), device)
+    assert matches_host_experts(host, **refs)
+    swapped = HostExperts(
+        w13_ptrs=host.w13_ptrs.flip(0), s13_ptrs=host.s13_ptrs, w2_ptrs=host.w2_ptrs,
+        s2_ptrs=host.s2_ptrs, num_experts=E, hidden=H, intermediate=I)
+    assert not matches_host_experts(swapped, **refs)
+
+
 @pytest.mark.parametrize("requests", [1, 3])
 @pytest.mark.parametrize("limit", [0.0, 7.0])
 def test_draft_miss_matches_reference(requests, limit):
@@ -76,13 +111,7 @@ def test_draft_miss_matches_reference(requests, limit):
     s13 = torch.randint(118, 124, (E, 2 * I, H // 32), dtype=torch.uint8)
     w2 = torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8)
     s2 = torch.randint(118, 124, (E, H, I // 32), dtype=torch.uint8)
-    if device == "cuda":
-        w13, s13, w2, s2 = (t.pin_memory() for t in (w13, s13, w2, s2))
-    host = HostExperts(
-        w13_addr=w13.data_ptr(), s13_addr=s13.data_ptr(),
-        w2_addr=w2.data_ptr(), s2_addr=s2.data_ptr(),
-        num_experts=E, hidden=H, intermediate=I,
-    )
+    host, _storage = _scattered_host(w13, s13, w2, s2, torch.randperm(E), device)
     # Distinct experts per row; EP-remote routes are -1; one expert shared by all rows.
     ids = torch.stack([torch.randperm(E)[:k] for _ in range(rows)]).int()
     ids[:, 0] = 5

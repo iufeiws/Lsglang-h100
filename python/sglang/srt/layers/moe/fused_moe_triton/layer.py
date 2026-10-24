@@ -106,7 +106,7 @@ _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 logger = logging.getLogger(__name__)
 
-from sglang.srt.utils.lk_moe_env import is_lk_verify_uva_enabled
+from sglang.srt.utils.lk_moe_env import get_lk_verify_uva_provider, is_lk_verify_uva_enabled
 from sglang.srt.utils.common import is_lk_moe_feature_enabled, is_lk_pool_enabled, get_pool_log, get_verify_resident, get_verify_skip_miss, get_hf_mbox, get_pool_inflight, is_lk_prefill_debug, is_lk_moe_gpu_resident_layer, get_gpu_prefetch_window, get_gpu_prefill_min_tokens, get_gpu_prefill_engine, get_pool_window, get_super_chunk_size, get_bool_env_var, is_lk_gpu_prefill_enabled, get_model_type_from_layer_name, is_lk_pool_layer, get_pool_slots, is_lk_pool_decode_enabled, lk_route_probe_enabled, get_prefill_wave_experts
 from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import CompressedTensorsFusedMoEMethod
 from sglang.srt.model_executor.runner import get_is_capture_mode
@@ -2352,10 +2352,6 @@ class FusedMoE(torch.nn.Module):
         self.lk_moe_config.groupN = groupN
         self.lk_moe_config.groupK = groupK
 
-        if self.verify_uva:
-            self._register_verify_uva(
-                w13_weight, w13_weight_scale, w2_weight, w2_weight_scale)
-
         # no global scale
         if self.params_dtype == torch.bfloat16:
             self.lk_moe = lk_moe.MOE_MXFP4(
@@ -2377,10 +2373,13 @@ class FusedMoE(torch.nn.Module):
                 0,
                 0,
             )
+        if self.verify_uva:
+            self._setup_verify_uva(
+                w13_weight, w13_weight_scale, w2_weight, w2_weight_scale)
              
      
           
-    def _register_verify_uva(self, w13, s13, w2, s2):
+    def _setup_verify_uva(self, w13, s13, w2, s2):
         from sglang.kernels.ops.moe.lk_verify_uva import register_host_experts
         tensors = tuple(t.data.view(torch.uint8) for t in (w13, s13, w2, s2))
         if not all(t.device.type == "cpu" and t.is_contiguous() for t in tensors):
@@ -2388,11 +2387,54 @@ class FusedMoE(torch.nn.Module):
                 "LK_VERIFY_UVA: layer %s experts are not contiguous CPU tensors; "
                 "draft-row misses stay on the CPU", self.layer_id)
             return
-        self._verify_uva_host = register_host_experts(*tensors)
+        device = torch.cuda.current_device()
+        provider = get_lk_verify_uva_provider()
+        if provider is not None:
+            host = self._verify_uva_from_provider(provider, tensors, device)
+            if host is not None:
+                self._verify_uva_host = host
+                logger.info("LK_VERIFY_UVA: layer %s reads experts at addresses from %s",
+                            self.layer_id, provider)
+                return
+        self._verify_uva_host = register_host_experts(*tensors, device=device)
         self._verify_uva_tensors = tensors
         logger.info(
             "LK_VERIFY_UVA: layer %s pinned %.2f GiB of host experts",
             self.layer_id, sum(t.numel() for t in tensors) / 2**30)
+
+    def _verify_uva_from_provider(self, spec, tensors, device):
+        """Use expert addresses that already exist (e.g. the MoE backend's own copy).
+
+        ``spec`` is "module:function"; the function is called as
+        ``fn(lk_moe=..., layer_id=..., num_experts=E, hidden=H, intermediate=I)`` and
+        returns None or four sequences of E GPU-readable addresses (w13, s13, w2, s2),
+        each block laid out like this layer's CPU parameters of that expert. The
+        bytes are checked against those parameters before they are dropped; on a
+        mismatch the layer falls back to pinning its own copy.
+        """
+        import importlib
+
+        from sglang.kernels.ops.moe.lk_verify_uva import HostExperts, matches_host_experts
+        module_name, _, fn_name = spec.partition(":")
+        fn = getattr(importlib.import_module(module_name), fn_name)
+        w13, s13, w2, s2 = tensors
+        num_experts, two_i, half_h = w13.shape
+        addresses = fn(lk_moe=self.lk_moe, layer_id=self.layer_id,
+                       num_experts=num_experts, hidden=half_h * 2,
+                       intermediate=two_i // 2)
+        if addresses is None:
+            return None
+        host = HostExperts.from_addresses(
+            w13=addresses[0], s13=addresses[1], w2=addresses[2], s2=addresses[3],
+            hidden=half_h * 2, intermediate=two_i // 2, device=device)
+        probe = sorted({0, num_experts // 2, num_experts - 1})
+        if not matches_host_experts(host, w13=w13, s13=s13, w2=w2, s2=s2, experts=probe):
+            logger.warning(
+                "LK_VERIFY_UVA: layer %s: addresses from %s do not hold this layer's "
+                "expert bytes (layout differs?); pinning a copy instead",
+                self.layer_id, spec)
+            return None
+        return host
 
     def _get_max_num_seqs(self) -> int:
         if self.speculative_num_draft_tokens is not None and self.speculative_num_draft_tokens > 0:

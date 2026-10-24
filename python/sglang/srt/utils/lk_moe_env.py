@@ -161,6 +161,12 @@ def is_lk_verify_uva_enabled() -> bool:
     return get_bool_env_var("LK_VERIFY_UVA")
 
 
+def get_lk_verify_uva_provider() -> str | None:
+    # "module:function" giving existing GPU-readable expert addresses for
+    # LK_VERIFY_UVA instead of pinning a copy; see FusedMoE._verify_uva_from_provider.
+    return get_str_env_var("LK_VERIFY_UVA_PROVIDER", None) or None
+
+
 def get_hf_mbox() -> int:
     # mailbox early-start decode path (default on; 0 = pure host-node path).
     return get_int_env_var("LK_HF_MBOX", 1)

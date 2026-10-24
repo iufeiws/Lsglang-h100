@@ -6,9 +6,10 @@ pool GEMV; this module computes the draft-row routes the pool snapshot does not 
 straight from the layer's pinned host copy of its experts, so those rows never wait
 for the CPU. One read of ``slot_tab`` (the pool snapshot gather) decides both halves.
 
-Host layout (sglang's MXFP4 CPU parameters of a non-resident layer, gate rows first):
-  w13 [E, 2I, H/2] uint8 (two e2m1 per byte, low nibble = even k), s13 [E, 2I, H/32] e8m0
-  w2  [E, H,  I/2] uint8,                                          s2  [E, H,  I/32] e8m0
+Per-expert layout at each address (that of sglang's MXFP4 CPU parameters, gate rows first):
+  w13 [2I, H/2] uint8 (two e2m1 per byte, low nibble = even k), s13 [2I, H/32] e8m0
+  w2  [H,  I/2] uint8,                                          s2  [H,  I/32] e8m0
+Experts may live anywhere: every expert has its own address, so per-NUMA placement works.
 """
 
 from __future__ import annotations
@@ -27,15 +28,24 @@ _BM = 16
 
 
 class HostExperts(msgspec.Struct, frozen=True):
-    """Device-visible (UVA) addresses of one layer's pinned MXFP4 experts."""
+    """Device-visible (UVA) address of every MXFP4 expert block of one layer."""
 
-    w13_addr: int
-    s13_addr: int
-    w2_addr: int
-    s2_addr: int
+    # [E] int64 on the GPU: address of expert e's block of each tensor.
+    w13_ptrs: torch.Tensor
+    s13_ptrs: torch.Tensor
+    w2_ptrs: torch.Tensor
+    s2_ptrs: torch.Tensor
     num_experts: int
     hidden: int
     intermediate: int
+
+    @classmethod
+    def from_addresses(cls, *, w13, s13, w2, s2, hidden: int, intermediate: int, device):
+        """Each argument is a sequence of E integer addresses, readable by the GPU."""
+        tables = [torch.tensor(list(a), dtype=torch.int64, device=device) for a in (w13, s13, w2, s2)]
+        num_experts = tables[0].numel()
+        assert all(t.numel() == num_experts for t in tables)
+        return cls(*tables, num_experts=num_experts, hidden=hidden, intermediate=intermediate)
 
 
 class UvaScratch(msgspec.Struct, frozen=True):
@@ -69,7 +79,7 @@ class UvaScratch(msgspec.Struct, frozen=True):
         )
 
 
-def register_host_experts(w13, s13, w2, s2) -> HostExperts:
+def register_host_experts(w13, s13, w2, s2, *, device) -> HostExperts:
     """Pin the CPU expert tensors in place and return their UVA addresses.
 
     The caller must keep the tensors alive for the process lifetime.
@@ -84,16 +94,37 @@ def register_host_experts(w13, s13, w2, s2) -> HostExperts:
                 f"cudaHostRegister({t.numel() * t.element_size()} bytes) failed: {err}"
             )
     num_experts, two_i, half_h = w13.shape
-    return HostExperts(
+
+    def per_expert(t):
         # Under UVA a registered host address is also its device address.
-        w13_addr=w13.data_ptr(),
-        s13_addr=s13.data_ptr(),
-        w2_addr=w2.data_ptr(),
-        s2_addr=s2.data_ptr(),
-        num_experts=num_experts,
-        hidden=half_h * 2,
-        intermediate=two_i // 2,
+        step = t[0].numel() * t.element_size()
+        return [t.data_ptr() + e * step for e in range(num_experts)]
+
+    return HostExperts.from_addresses(
+        w13=per_expert(w13), s13=per_expert(s13), w2=per_expert(w2), s2=per_expert(s2),
+        hidden=half_h * 2, intermediate=two_i // 2, device=device,
     )
+
+
+@triton.jit
+def _copy_bytes_kernel(src_ptrs, index, dst_ptr, n_bytes, BLOCK: tl.constexpr):
+    src = tl.cast(tl.load(src_ptrs + index), tl.pointer_type(tl.uint8))
+    off = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    tl.store(dst_ptr + off, tl.load(src + off, mask=off < n_bytes), mask=off < n_bytes)
+
+
+def matches_host_experts(host: HostExperts, *, w13, s13, w2, s2, experts) -> bool:
+    """Byte-compare the GPU's view of ``host`` with reference CPU tensors [E, ...]."""
+    for table, ref in ((host.w13_ptrs, w13), (host.s13_ptrs, s13),
+                       (host.w2_ptrs, w2), (host.s2_ptrs, s2)):
+        for e in experts:
+            want = ref[e].contiguous().view(torch.uint8).reshape(-1)
+            got = torch.empty(want.numel(), dtype=torch.uint8, device=table.device)
+            _copy_bytes_kernel[(triton.cdiv(want.numel(), 4096),)](
+                table, e, got, want.numel(), BLOCK=4096)
+            if not torch.equal(got.cpu(), want):
+                return False
+    return True
 
 
 @triton.jit
@@ -190,8 +221,8 @@ def _gate_up_kernel(
     tile_expert_ptr,
     tile_start_ptr,
     tile_count_ptr,
-    w13_addr,
-    s13_addr,
+    w13_ptrs,
+    s13_ptrs,
     mid_ptr,
     top_k,
     H: tl.constexpr,
@@ -214,10 +245,10 @@ def _gate_up_kernel(
     slot = tl.load(order_ptr + start + r, mask=live, other=0).to(tl.int64)
     x_row = x_ptr + (slot // top_k) * H
     n = tl.program_id(1) * BN + tl.arange(0, BN)
-    w = tl.cast(w13_addr.to(tl.int64), tl.pointer_type(tl.uint8))
-    s = tl.cast(s13_addr.to(tl.int64), tl.pointer_type(tl.uint8))
-    gate_rows = expert * (2 * I) + n
-    up_rows = gate_rows + I
+    w = tl.cast(tl.load(w13_ptrs + expert), tl.pointer_type(tl.uint8))
+    s = tl.cast(tl.load(s13_ptrs + expert), tl.pointer_type(tl.uint8))
+    gate_rows = n
+    up_rows = n + I
     j = tl.arange(0, BK // 2)
     acc_gate = tl.zeros((BM, BN), dtype=tl.float32)
     acc_up = tl.zeros((BM, BN), dtype=tl.float32)
@@ -242,8 +273,8 @@ def _down_kernel(
     tile_start_ptr,
     tile_count_ptr,
     route_weights_ptr,
-    w2_addr,
-    s2_addr,
+    w2_ptrs,
+    s2_ptrs,
     mid_ptr,
     gout_part_ptr,
     H: tl.constexpr,
@@ -262,9 +293,9 @@ def _down_kernel(
     live = r < count
     slot = tl.load(order_ptr + start + r, mask=live, other=0).to(tl.int64)
     n = tl.program_id(1) * BN + tl.arange(0, BN)
-    w = tl.cast(w2_addr.to(tl.int64), tl.pointer_type(tl.uint8))
-    s = tl.cast(s2_addr.to(tl.int64), tl.pointer_type(tl.uint8))
-    rows = expert * H + n
+    w = tl.cast(tl.load(w2_ptrs + expert), tl.pointer_type(tl.uint8))
+    s = tl.cast(tl.load(s2_ptrs + expert), tl.pointer_type(tl.uint8))
+    rows = n
     j = tl.arange(0, BK // 2)
     acc = tl.zeros((BM, BN), dtype=tl.float32)
     for k0 in range(0, I, BK):
@@ -347,8 +378,8 @@ def launch_draft_miss_uva(
         scratch.tile_expert,
         scratch.tile_start,
         scratch.tile_count,
-        host.w13_addr,
-        host.s13_addr,
+        host.w13_ptrs,
+        host.s13_ptrs,
         scratch.mid,
         top_k,
         H=H,
@@ -368,8 +399,8 @@ def launch_draft_miss_uva(
         scratch.tile_start,
         scratch.tile_count,
         topk_weights,
-        host.w2_addr,
-        host.s2_addr,
+        host.w2_ptrs,
+        host.s2_ptrs,
         scratch.mid,
         gout_part,
         H=H,
