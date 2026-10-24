@@ -106,7 +106,6 @@ _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 logger = logging.getLogger(__name__)
 
-from sglang.srt.utils.lk_moe_env import is_lk_verify_uva_enabled
 from sglang.srt.utils.common import is_lk_moe_feature_enabled, is_lk_pool_enabled, get_pool_log, get_verify_resident, get_verify_skip_miss, get_hf_mbox, get_pool_inflight, is_lk_prefill_debug, is_lk_moe_gpu_resident_layer, get_gpu_prefetch_window, get_gpu_prefill_min_tokens, get_gpu_prefill_engine, get_pool_window, get_super_chunk_size, get_bool_env_var, is_lk_gpu_prefill_enabled, get_model_type_from_layer_name, is_lk_pool_layer, get_pool_slots, is_lk_pool_decode_enabled, lk_route_probe_enabled, get_prefill_wave_experts
 from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import CompressedTensorsFusedMoEMethod
 from sglang.srt.model_executor.runner import get_is_capture_mode
@@ -602,14 +601,6 @@ class FusedMoE(torch.nn.Module):
         self.is_pool_layer = is_lk_pool_layer(self.layer_id, self.model_type)
         self.route_probe = lk_route_probe_enabled()
         self.pool_decode = is_lk_pool_decode_enabled() and self.is_pool_layer
-        self.verify_uva = (
-            is_lk_verify_uva_enabled()
-            and self.pool_decode
-            and (self.speculative_num_draft_tokens or 1) > 1
-        )
-        # Pinned CPU experts kept past clean_weights_after_loading for verify UVA.
-        self._verify_uva_tensors = None
-        self._verify_uva_host = None
 
         self._gpu_prefill_driver = None
         self._pool_layer_info = None
@@ -2352,10 +2343,6 @@ class FusedMoE(torch.nn.Module):
         self.lk_moe_config.groupN = groupN
         self.lk_moe_config.groupK = groupK
 
-        if self.verify_uva:
-            self._register_verify_uva(
-                w13_weight, w13_weight_scale, w2_weight, w2_weight_scale)
-
         # no global scale
         if self.params_dtype == torch.bfloat16:
             self.lk_moe = lk_moe.MOE_MXFP4(
@@ -2380,20 +2367,6 @@ class FusedMoE(torch.nn.Module):
              
      
           
-    def _register_verify_uva(self, w13, s13, w2, s2):
-        from sglang.kernels.ops.moe.lk_verify_uva import register_host_experts
-        tensors = tuple(t.data.view(torch.uint8) for t in (w13, s13, w2, s2))
-        if not all(t.device.type == "cpu" and t.is_contiguous() for t in tensors):
-            logger.warning(
-                "LK_VERIFY_UVA: layer %s experts are not contiguous CPU tensors; "
-                "draft-row misses stay on the CPU", self.layer_id)
-            return
-        self._verify_uva_host = register_host_experts(*tensors)
-        self._verify_uva_tensors = tensors
-        logger.info(
-            "LK_VERIFY_UVA: layer %s pinned %.2f GiB of host experts",
-            self.layer_id, sum(t.numel() for t in tensors) / 2**30)
-
     def _get_max_num_seqs(self) -> int:
         if self.speculative_num_draft_tokens is not None and self.speculative_num_draft_tokens > 0:
             batch_size = self.max_running_requests * (
@@ -2514,34 +2487,10 @@ class FusedMoE(torch.nn.Module):
             H=H, I=I, k=k, NB_GATEUP=NB_GATEUP, NB_DOWN=NB_DOWN,
             NGK=NGK, KS=KS, ITERS=ITERS, **caps,
         )
-        self._init_verify_uva(caps, H=H, I=I, rows=rows)
         self.lk_moe.pool_gpu_report(True)
 
-    def _init_verify_uva(self, caps, *, H, I, rows):
-        host = self._verify_uva_host
-        if host is None:
-            return
-        compatible = (
-            caps["format"] == "mxfp4" and caps["scale_group"] == 32
-            and caps["has_gate"] and FusedMoE._pool_verify_rows_mult > 1
-            and (host.hidden, host.intermediate) == (H, I)
-        )
-        if not compatible:
-            logger.warning(
-                "LK_VERIFY_UVA: layer %s needs MXFP4 group-32 gated experts and "
-                "LK_VERIFY_RESIDENT=1; draft-row misses stay on the CPU", self.layer_id)
-            self._verify_uva_host = None
-            return
-        from sglang.kernels.ops.moe.lk_verify_uva import UvaScratch
-        if (not hasattr(FusedMoE, "pool_uva_scratch")
-                or FusedMoE.pool_uva_scratch.order.numel() < rows):
-            FusedMoE.pool_uva_scratch = UvaScratch.allocate(
-                num_experts=host.num_experts, max_slots=rows, intermediate=I,
-                device=torch.cuda.current_device())
-            FusedMoE.pool_uva_stream = torch.cuda.Stream()
-
     def _pool_decode_launch(self, hidden_states, topk_ids, topk_weights,
-                         real_tokens=None, rows_per_token=1, uva=False):
+                         real_tokens=None, rows_per_token=1):
         global _LK_POOL_PROBE_N
         geo = self._pool_layer_info
         if (_LK_POOL_SPLIT_PROBE and not get_is_capture_mode()
@@ -2573,7 +2522,6 @@ class FusedMoE(torch.nn.Module):
         side_stream = FusedMoE.pool_stream
         all_rows = (rows_per_token > 1
                     and FusedMoE._pool_verify_rows_mult > 1)
-        rows_per_request = rows_per_token
         if rows_per_token > 1 and not all_rows:
             gathered_ids = FusedMoE.pool_gathered_ids[:n_slots]
             gathered_weights = FusedMoE.pool_gathered_weights[:n_slots]
@@ -2609,10 +2557,7 @@ class FusedMoE(torch.nn.Module):
             slot_table_fill[(1,)](
                 gathered_ids, geo["snapshot_addr"], slot_tab, n_slots,
                 BLOCK=triton.next_power_of_2(n_slots))
-            gout_part[:n_slots].zero_()
-            if uva:
-                self._launch_verify_uva(hidden_states, topk_ids, topk_weights,
-                                        slot_tab, gout_part, rows_per_request)
+            gout_part.zero_()
             moe_gateup[(n_slots, geo["NB_GATEUP"], geo["NGK"])](
                 gathered_ids, slot_tab,
                 geo["weight_addr"][0], geo["scale_addr"][0],
@@ -2641,32 +2586,13 @@ class FusedMoE(torch.nn.Module):
                 FORMAT=geo["format"], FORMAT_PACKED_K=PK, SCALE_SIZE=SSZ,
                 HAS_GATE=geo["has_gate"], ACTIVATION=geo["activation"],
                 ALPHA=geo["swiglu_alpha"], LIMIT=geo["swiglu_limit"])
-            if uva:
-                side_stream.wait_stream(FusedMoE.pool_uva_stream)
-            # With UVA every live slot of gout_part is written (pool or UVA)
-            # and the rest are zero, so sum all of them.
             reduce_down[(triton.cdiv(H, 1024),)](
                 gout_part, gout[:real_tokens], slot_tab, HIDDEN=H,
                 SLOTS_PER_TOKEN=k, BATCH=real_tokens, BLOCK=1024,
-                RESIDENT_ONLY=0 if uva else 1)
+                RESIDENT_ONLY=1)
         # fence for worker copies: record the pool stream's progress so no
         # inbound H2D lands before these gemvs finish reading their slots.
         self.lk_moe.pool_record_aux(FusedMoE.pool_stream.cuda_stream)
-
-    def _launch_verify_uva(self, hidden_states, topk_ids, topk_weights,
-                           slot_tab, gout_part, rows_per_request):
-        from sglang.kernels.ops.moe.lk_verify_uva import launch_draft_miss_uva
-        geo = self._pool_layer_info
-        uva_stream = FusedMoE.pool_uva_stream
-        uva_stream.wait_stream(torch.cuda.current_stream())
-        with torch.cuda.stream(uva_stream):
-            launch_draft_miss_uva(
-                hidden_states=hidden_states, topk_ids=topk_ids,
-                topk_weights=topk_weights, slot_tab=slot_tab,
-                gout_part=gout_part, rows_per_request=rows_per_request,
-                host=self._verify_uva_host, scratch=FusedMoE.pool_uva_scratch,
-                activation=geo["activation"], alpha=geo["swiglu_alpha"],
-                limit=geo["swiglu_limit"])
 
     def _cpu_decode(self, hidden_states, topk_weights, topk_ids):
         bs = hidden_states.size(0)
@@ -2679,34 +2605,22 @@ class FusedMoE(torch.nn.Module):
         covered = (self._pool_layer_info is not None
                  and real_tokens <= FusedMoE._pool_decode_cap)
 
-        uva = (covered and rows_per_token > 1
-               and self._verify_uva_host is not None
-               and FusedMoE._pool_verify_rows_mult > 1)
         if covered:
             self.lk_moe.pool_gpu_report(True)
             self._pool_decode_launch(hidden_states, topk_ids, topk_weights,
                                   real_tokens=real_tokens,
-                                  rows_per_token=rows_per_token, uva=uva)
-        native_ids, native_real_tokens, native_rows_per_token = (
-            topk_ids, real_tokens, rows_per_token)
-        if uva:
-            # Draft rows are fully on the GPU (pool + UVA); native computes only
-            # row 0 of each request, as ordinary decode tokens.
-            draft_row = (torch.arange(bs, device=topk_ids.device)
-                         % rows_per_token != 0).unsqueeze(1)
-            native_ids = topk_ids.masked_fill(draft_row, -1)
-            native_real_tokens, native_rows_per_token = bs, 1
+                                  rows_per_token=rows_per_token)
         stream_ptr = torch.cuda.current_stream().cuda_stream
         self.lk_moe.cpu_decode(
             stream_ptr,
             bs,
             self.top_k,
             hidden_states.data_ptr(),
-            native_ids.data_ptr(),
+            topk_ids.data_ptr(),
             topk_weights.data_ptr(),
             FusedMoE.output_gpu.data_ptr(),
-            real_tokens=native_real_tokens,
-            rows_per_token=native_rows_per_token,
+            real_tokens=real_tokens,
+            rows_per_token=rows_per_token,
         )
 
         if covered:
