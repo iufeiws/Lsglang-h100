@@ -114,7 +114,7 @@ if is_lk_moe_feature_enabled():
     import lk_moe
     import triton
     from lk_moe._hybrid_gemv_kernel import (
-        gather_rows, slot_table_fill, moe_gateup, reduce_gate, moe_down, reduce_down)
+        slot_table_fill, moe_gateup, reduce_gate, moe_down, reduce_down)
     from sglang.kernels.ops.moe.lk_verify import launch as launch_lk_verify
 else:
     logger.error("Failed to import lk_moe module or LK_MOE_HYBRID_ENABLED is not set to 1, lk::MOE implementation will not be available")
@@ -2450,18 +2450,18 @@ class FusedMoE(torch.nn.Module):
         # Sized ONCE from the concurrency limit: every decode batch is
         # covered by construction, no runtime growth path.
         cap = max(1, self.max_running_requests)
-        # LK_VERIFY_RESIDENT: verify batches cover the DRAFT rows' resident
-        # experts on the GPU too (row-major slot space of bs*k), so the CPU
-        # side computes only misses on every row, not just real rows.
-        rpt0 = self.speculative_num_draft_tokens or 1
-        mult = rpt0 if (get_verify_resident()
-                        and rpt0 > 1) else 1
+        # Target verification evaluates a complete MoE for every candidate
+        # position. Its GPU half must cover every row even when the legacy
+        # LK_VERIFY_RESIDENT speculative-row policy is disabled. The native
+        # half below uses ordinary independent tokens, not that policy.
+        mult = self.speculative_num_draft_tokens or (
+            1 + (self.speculative_dspark_block_size or 0)
+        )
+        mult = max(1, mult)
         FusedMoE._pool_verify_rows_mult = max(FusedMoE._pool_verify_rows_mult, mult)
         rows = cap * k * FusedMoE._pool_verify_rows_mult
         dev = torch.cuda.current_device()
         if not hasattr(FusedMoE, "pool_hbuf"):
-            FusedMoE._pool_k = k
-            FusedMoE._pool_decode_cap = cap
             FusedMoE.pool_hbuf = torch.zeros((rows, 2 * I), dtype=torch.float32, device=dev)
             # Reuse storage on the same pool stream; GEMV still sees FP32,
             # while verify writes/reads compact BF16 post-SiLU activations.
@@ -2469,8 +2469,6 @@ class FusedMoE(torch.nn.Module):
             FusedMoE.pool_gout = torch.zeros(
                 (cap * FusedMoE._pool_verify_rows_mult, H), dtype=torch.float32, device=dev)
             FusedMoE.pool_slot_tab = torch.full((rows,), -1, dtype=torch.int32, device=dev)
-            FusedMoE.pool_gathered_ids = torch.zeros((rows,), dtype=torch.int32, device=dev)
-            FusedMoE.pool_gathered_weights = torch.zeros((rows,), dtype=torch.float32, device=dev)
             FusedMoE.pool_stream = torch.cuda.Stream()
             from lk_moe.prefill_staging import StagingPrefill
             if StagingPrefill._pool_stream is None:
@@ -2540,26 +2538,17 @@ class FusedMoE(torch.nn.Module):
         H, I, k = geo["H"], geo["I"], geo["k"]
         SG, PK = geo["scale_group"], geo["packed_k_per_iter"]
         SSZ = int(geo.get("scale_size", 1))
-        real_tokens = hidden_states.size(0) if real_tokens is None else real_tokens
+        # A verify width selects GEMM/GEMV only. It must never restrict the
+        # resident half to anchor rows while native computes complete rows.
+        all_rows = rows_per_token > 1
+        real_tokens = hidden_states.size(0)
+        rows_per_token = 1
         n_slots = real_tokens * k
         hpart, hbuf, gout = FusedMoE.pool_hpart, FusedMoE.pool_hbuf, FusedMoE.pool_gout
         gout_part = FusedMoE.pool_gout_part
         slot_tab = FusedMoE.pool_slot_tab
         side_stream = FusedMoE.pool_stream
-        all_rows = (rows_per_token > 1
-                    and FusedMoE._pool_verify_rows_mult > 1)
-        if rows_per_token > 1 and not all_rows:
-            gathered_ids = FusedMoE.pool_gathered_ids[:n_slots]
-            gathered_weights = FusedMoE.pool_gathered_weights[:n_slots]
-        elif all_rows:
-            # row-major slot space: every batch row (real AND draft) gets its
-            # own k slots; kernels see rows_per_token == 1 addressing.
-            n_slots = real_tokens * rows_per_token * k
-            gathered_ids, gathered_weights = topk_ids, topk_weights
-            real_tokens = real_tokens * rows_per_token   # reduce works per row
-            rows_per_token = 1
-        else:
-            gathered_ids, gathered_weights = topk_ids, topk_weights
+        gathered_ids, gathered_weights = topk_ids, topk_weights
         side_stream.wait_stream(torch.cuda.current_stream())
         if _LK_POOL_DET_SPLIT:
             try:
@@ -2567,11 +2556,6 @@ class FusedMoE(torch.nn.Module):
             except Exception:
                 pass
         with torch.cuda.stream(side_stream):
-            if rows_per_token > 1:
-                gather_rows[(triton.cdiv(n_slots, 128),)](
-                    topk_ids, topk_weights, gathered_ids, gathered_weights,
-                    k, rows_per_token, n_slots,
-                    BLOCK=triton.next_power_of_2(n_slots))
             # ONE volatile gather of the mapped snapshot into a device table:
             # per-program host reads (k*NB_GATEUP*NGK PCIe round-trips/layer, queued
             # behind the pump's H2D) were the whole speed regression.
@@ -2684,16 +2668,24 @@ class FusedMoE(torch.nn.Module):
     def _cpu_decode(self, hidden_states, topk_weights, topk_ids):
         bs = hidden_states.size(0)
 
+        # Keep the request stride only for choosing the GPU verify kernel.
+        # MoE has no causal dependency between rows: every target position
+        # must receive the same complete expert computation as decode.
+        # Passing (requests, verify_width) to native cpu_decode opts later
+        # rows into LK's separate speculative-row policy (verify_resident /
+        # verify_skip_miss), which is not a target-verification contract.
         rows_per_token = get_verify_rows_per_request(bs)
         real_tokens = bs // rows_per_token
 
         covered = (
             self._pool_layer_info is not None
-            and real_tokens <= FusedMoE._pool_decode_cap
+            and bs <= FusedMoE.pool_gout.size(0)
         )
 
+        # Withdraw a previous GPU claim when this batch cannot be covered;
+        # otherwise native may skip resident routes nobody will compute.
+        self.lk_moe.pool_gpu_report(covered)
         if covered:
-            self.lk_moe.pool_gpu_report(True)
             self._pool_decode_launch(hidden_states, topk_ids, topk_weights,
                                   real_tokens=real_tokens,
                                   rows_per_token=rows_per_token)
@@ -2706,23 +2698,13 @@ class FusedMoE(torch.nn.Module):
             topk_ids.data_ptr(),
             topk_weights.data_ptr(),
             FusedMoE.output_gpu.data_ptr(),
-            real_tokens=real_tokens,
-            rows_per_token=rows_per_token,
+            real_tokens=bs,
+            rows_per_token=1,
         )
 
         if covered:
             torch.cuda.current_stream().wait_stream(FusedMoE.pool_stream)
-            if rows_per_token == 1:
-                FusedMoE.output_gpu[:real_tokens].add_(
-                    FusedMoE.pool_gout[:real_tokens])
-            elif FusedMoE._pool_verify_rows_mult > 1:
-                n_rows = real_tokens * rows_per_token
-                FusedMoE.output_gpu[:n_rows].add_(FusedMoE.pool_gout[:n_rows])
-            else:
-                for tok in range(real_tokens):
-                    real_row = tok * rows_per_token
-                    FusedMoE.output_gpu[real_row:real_row + 1].add_(
-                        FusedMoE.pool_gout[tok:tok + 1])
+            FusedMoE.output_gpu[:bs].add_(FusedMoE.pool_gout[:bs])
 
         output = FusedMoE.output_gpu[:hidden_states.size(0)]
         if self.check_nan_in_output:
