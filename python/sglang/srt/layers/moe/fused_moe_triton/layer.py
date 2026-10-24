@@ -106,7 +106,12 @@ _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 logger = logging.getLogger(__name__)
 
-from sglang.srt.utils.lk_moe_env import get_lk_verify_uva_provider, is_lk_verify_uva_enabled
+from sglang.srt.utils.lk_moe_env import (
+    get_gpu_expert_cache_policy,
+    get_gpu_expert_cache_slots,
+    get_lk_verify_uva_provider,
+    is_lk_verify_uva_enabled,
+)
 from sglang.srt.utils.common import is_lk_moe_feature_enabled, is_lk_pool_enabled, get_pool_log, get_verify_resident, get_verify_skip_miss, get_hf_mbox, get_pool_inflight, is_lk_prefill_debug, is_lk_moe_gpu_resident_layer, get_gpu_prefetch_window, get_gpu_prefill_min_tokens, get_gpu_prefill_engine, get_pool_window, get_super_chunk_size, get_bool_env_var, is_lk_gpu_prefill_enabled, get_model_type_from_layer_name, is_lk_pool_layer, get_pool_slots, is_lk_pool_decode_enabled, lk_route_probe_enabled, get_prefill_wave_experts
 from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import CompressedTensorsFusedMoEMethod
 from sglang.srt.model_executor.runner import get_is_capture_mode
@@ -610,6 +615,15 @@ class FusedMoE(torch.nn.Module):
         # Pinned CPU experts kept past clean_weights_after_loading for verify UVA.
         self._verify_uva_tensors = None
         self._verify_uva_host = None
+        # Graph decode/verify of this offloaded layer on the GPU expert cache.
+        self.gpu_cache_slots = (
+            get_gpu_expert_cache_slots()
+            if is_lk_moe_feature_enabled()
+            and not self.is_gpu_resident_layer
+            and self.model_type == "main"
+            else 0
+        )
+        self._gpu_cache = None
 
         self._gpu_prefill_driver = None
         self._pool_layer_info = None
@@ -1745,7 +1759,14 @@ class FusedMoE(torch.nn.Module):
         
         # 2. CPU resident layer: mixed path or capture mode
         # Decode: CUDA capturing or capture mode
-        if torch.cuda.is_current_stream_capturing() or get_is_capture_mode():
+        if self._gpu_cache is not None and (
+                torch.cuda.is_current_stream_capturing() or get_is_capture_mode()):
+            lk_result = self._gpu_cache_forward(
+                dispatch_output.hidden_states,
+                dispatch_output.topk_output.topk_weights,
+                dispatch_output.topk_output.topk_ids,
+            )
+        elif torch.cuda.is_current_stream_capturing() or get_is_capture_mode():
             lk_result = self._cpu_decode(
                 dispatch_output.hidden_states,
                 dispatch_output.topk_output.topk_weights,
@@ -2373,12 +2394,75 @@ class FusedMoE(torch.nn.Module):
                 0,
                 0,
             )
-        if self.verify_uva:
+        if self.gpu_cache_slots > 0:
+            self._setup_gpu_cache(
+                w13_weight, w13_weight_scale, w2_weight, w2_weight_scale)
+        elif self.verify_uva:
             self._setup_verify_uva(
                 w13_weight, w13_weight_scale, w2_weight, w2_weight_scale)
              
      
           
+    def _setup_gpu_cache(self, w13, s13, w2, s2):
+        from sglang.kernels.ops.moe.lk_verify_uva import UvaScratch
+        from sglang.srt.layers.moe.gpu_expert_cache import CacheManager, LayerCache
+        tensors = tuple(t.data.view(torch.uint8) for t in (w13, s13, w2, s2))
+        if not all(t.device.type == "cpu" and t.is_contiguous() for t in tensors):
+            logger.warning(
+                "LK_GPU_CACHE_SLOTS: layer %s experts are not contiguous CPU tensors; "
+                "decode stays on lk_moe", self.layer_id)
+            return
+        if self.activation_type != 0:
+            logger.warning(
+                "LK_GPU_CACHE_SLOTS: layer %s activation %d is not SiLU; decode stays "
+                "on lk_moe", self.layer_id, self.activation_type)
+            return
+        if is_lk_pool_enabled():
+            logger.warning(
+                "LK_GPU_CACHE_SLOTS with LK_POOL_SLOTS>0 keeps two VRAM expert caches; "
+                "set LK_POOL_SLOTS=0")
+        device = torch.cuda.current_device()
+        cache = LayerCache(layer_id=self.layer_id, host_tensors=tensors,
+                           num_slots=self.gpu_cache_slots, device=device)
+        rows = self.max_num_seqs * self.top_k
+        if (not hasattr(FusedMoE, "gpu_cache_scratch")
+                or FusedMoE.gpu_cache_scratch.order.numel() < rows):
+            FusedMoE.gpu_cache_scratch = UvaScratch.allocate(
+                num_experts=cache.num_experts, max_slots=rows,
+                intermediate=cache.experts.intermediate, device=device)
+            FusedMoE.gpu_cache_gout_part = torch.zeros(
+                (rows, cache.experts.hidden), dtype=torch.float32, device=device)
+        CacheManager.register(cache, device=device, **get_gpu_expert_cache_policy())
+        self._gpu_cache = cache
+        # Kept alive: the cache reads them over UVA and refills slots from them.
+        self._verify_uva_tensors = tensors
+        slot_bytes = sum(t[0].numel() for t in tensors)
+        logger.info(
+            "LK_GPU_CACHE_SLOTS: layer %s: %d VRAM slots (%.2f GiB), %d experts pinned "
+            "on host (%.2f GiB)", self.layer_id, len(cache.slot_owner),
+            len(cache.slot_owner) * slot_bytes / 2**30, cache.num_experts,
+            cache.num_experts * slot_bytes / 2**30)
+
+    def _gpu_cache_forward(self, hidden_states, topk_weights, topk_ids):
+        from sglang.kernels.ops.moe.lk_verify_uva import launch_draft_miss_uva
+        cache = self._gpu_cache
+        rows, k = topk_ids.shape
+        hidden = cache.experts.hidden
+        part = FusedMoE.gpu_cache_gout_part[: rows * k]
+        part.zero_()
+        launch_draft_miss_uva(
+            hidden_states=hidden_states.contiguous(), topk_ids=topk_ids,
+            topk_weights=topk_weights, slot_tab=None, gout_part=part,
+            rows_per_request=1, host=cache.experts,
+            scratch=FusedMoE.gpu_cache_scratch, activation=self.activation_type,
+            alpha=1.702 if self.swiglu_alpha is None else float(self.swiglu_alpha),
+            limit=0.0 if self.swiglu_limit is None else float(self.swiglu_limit),
+            include_first_row=True, hist=cache.hist)
+        out = part.view(rows, k, hidden).sum(dim=1)
+        if self.check_nan_in_output:
+            torch.nan_to_num(out, nan=0.0, out=out)
+        return out.to(hidden_states.dtype)
+
     def _setup_verify_uva(self, w13, s13, w2, s2):
         from sglang.kernels.ops.moe.lk_verify_uva import register_host_experts
         tensors = tuple(t.data.view(torch.uint8) for t in (w13, s13, w2, s2))

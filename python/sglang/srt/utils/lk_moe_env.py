@@ -59,8 +59,11 @@ def park_lk_moe_expert_pool():
     P2P-patched drivers.  No-op when lk_moe is off or too old to expose the
     pause/resume hooks.
     """
+    from sglang.srt.layers.moe.gpu_expert_cache import park as park_gpu_expert_cache
+
     if not is_lk_pool_enabled():
-        yield
+        with park_gpu_expert_cache():
+            yield
         return
     import lk_moe
 
@@ -72,7 +75,8 @@ def park_lk_moe_expert_pool():
     resume = lk_moe.pool_capture_resume
     pause()
     try:
-        yield
+        with park_gpu_expert_cache():
+            yield
     finally:
         resume()
 
@@ -165,6 +169,24 @@ def get_lk_verify_uva_provider() -> str | None:
     # "module:function" giving existing GPU-readable expert addresses for
     # LK_VERIFY_UVA instead of pinning a copy; see FusedMoE._verify_uva_from_provider.
     return get_str_env_var("LK_VERIFY_UVA_PROVIDER", None) or None
+
+
+def get_gpu_expert_cache_slots() -> int:
+    # >0: offloaded layers run decode/verify on the GPU from S VRAM expert slots
+    # per layer plus pinned host experts over UVA (CPU stores, never computes).
+    # Meant for LK_POOL_SLOTS=0: the LK pool would hold a second VRAM cache.
+    return get_int_env_var("LK_GPU_CACHE_SLOTS", 0)
+
+
+def get_gpu_expert_cache_policy() -> dict:
+    # Residency thread knobs. Defaults are a first guess, not tuned on H100.
+    return dict(
+        interval_s=get_int_env_var("LK_GPU_CACHE_INTERVAL_MS", 200) / 1000,
+        budget=get_int_env_var("LK_GPU_CACHE_SWAPS", 4),
+        decay=float(get_str_env_var("LK_GPU_CACHE_DECAY", "0.8")),
+        min_gain=float(get_str_env_var("LK_GPU_CACHE_MIN_GAIN", "1.5")),
+        log_interval_s=get_int_env_var("LK_GPU_CACHE_LOG_S", 30),
+    )
 
 
 def get_hf_mbox() -> int:

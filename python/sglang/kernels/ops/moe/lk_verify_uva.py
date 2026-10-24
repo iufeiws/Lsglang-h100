@@ -14,6 +14,8 @@ Experts may live anywhere: every expert has its own address, so per-NUMA placeme
 
 from __future__ import annotations
 
+from typing import Optional
+
 import msgspec
 import torch
 import triton
@@ -154,23 +156,30 @@ def _plan_kernel(
     tile_expert_ptr,
     tile_start_ptr,
     tile_count_ptr,
+    hist_ptr,
     n_slots,
     top_k,
     rows_per_request,
     num_experts,
     n_tiles_cap,
+    HAS_SLOT_TAB: tl.constexpr,
+    HAS_HIST: tl.constexpr,
     BM: tl.constexpr,
     BLOCK_S: tl.constexpr,
     BLOCK_E: tl.constexpr,
     BLOCK_T: tl.constexpr,
     MAX_T: tl.constexpr,
+    INCLUDE_FIRST_ROW: tl.constexpr,
 ):
     s = tl.arange(0, BLOCK_S)
     in_range = s < n_slots
     eid = tl.load(ids_ptr + s, mask=in_range, other=-1)
-    pool_slot = tl.load(slot_tab_ptr + s, mask=in_range, other=0)
-    draft_row = ((s // top_k) % rows_per_request) != 0
-    need = in_range & (eid >= 0) & (pool_slot < 0) & draft_row
+    if HAS_SLOT_TAB:
+        pool_slot = tl.load(slot_tab_ptr + s, mask=in_range, other=0)
+    else:
+        pool_slot = tl.full((BLOCK_S,), -1, tl.int32)
+    row_selected = (((s // top_k) % rows_per_request) != 0) | INCLUDE_FIRST_ROW
+    need = in_range & (eid >= 0) & (pool_slot < 0) & row_selected
 
     e = tl.arange(0, BLOCK_E)
     in_e = e < num_experts
@@ -183,6 +192,8 @@ def _plan_kernel(
     tl.debug_barrier()
     # Volatile: the atomics landed in L2, a cached load could return the zeroing store.
     counts = tl.load(counts_ptr + e, mask=in_e, other=0, volatile=True)
+    if HAS_HIST:
+        tl.atomic_add(hist_ptr + e, counts, mask=in_e & (counts > 0))
     offsets = tl.cumsum(counts, 0) - counts
     tl.store(offsets_ptr + e, offsets, mask=in_e)
     n_tiles = (counts + BM - 1) // BM
@@ -326,7 +337,7 @@ def launch_draft_miss_uva(
     hidden_states: torch.Tensor,
     topk_ids: torch.Tensor,
     topk_weights: torch.Tensor,
-    slot_tab: torch.Tensor,
+    slot_tab: Optional[torch.Tensor],
     gout_part: torch.Tensor,
     rows_per_request: int,
     host: HostExperts,
@@ -334,11 +345,16 @@ def launch_draft_miss_uva(
     activation: int,
     alpha: float,
     limit: float,
+    include_first_row: bool = False,
+    hist: Optional[torch.Tensor] = None,
 ) -> None:
     """Write route-weighted outputs of draft-row pool misses into ``gout_part[slot]``.
 
-    Enqueued on the current stream. ``gout_part`` rows of other slots are untouched,
-    so the caller zeroes them and the pool GEMV fills the resident ones.
+    ``slot_tab`` None computes every selected route (no LK pool); ``include_first_row``
+    also computes row 0 of each request (every row of a plain decode batch with
+    ``rows_per_request=1``); ``hist`` [E] int32 accumulates the computed routes per
+    expert. Enqueued on the current stream. ``gout_part`` rows of other slots are
+    untouched, so the caller zeroes them and the pool GEMV fills the resident ones.
     """
     rows, top_k = topk_ids.shape
     H, I, E = host.hidden, host.intermediate, host.num_experts
@@ -346,12 +362,13 @@ def launch_draft_miss_uva(
     assert topk_ids.is_contiguous() and topk_weights.is_contiguous()
     assert topk_weights.dtype == torch.float32
     n_slots = rows * top_k
-    draft_rows = rows - rows // rows_per_request
-    n_tiles_cap = max(1, draft_rows * top_k)
+    computed_rows = rows if include_first_row else rows - rows // rows_per_request
+    n_tiles_cap = max(1, computed_rows * top_k)
     assert n_slots <= scratch.order.numel() and E <= scratch.counts.numel()
     _plan_kernel[(1,)](
         topk_ids,
-        slot_tab,
+        # Unused placeholders keep the signature fixed when a feature is off.
+        slot_tab if slot_tab is not None else scratch.order,
         scratch.counts,
         scratch.cursor,
         scratch.offsets,
@@ -359,17 +376,21 @@ def launch_draft_miss_uva(
         scratch.tile_expert,
         scratch.tile_start,
         scratch.tile_count,
+        hist if hist is not None else scratch.counts,
         n_slots,
         top_k,
         rows_per_request,
         E,
         n_tiles_cap,
+        HAS_SLOT_TAB=slot_tab is not None,
+        HAS_HIST=hist is not None,
         BM=_BM,
         BLOCK_S=triton.next_power_of_2(n_slots),
         BLOCK_E=triton.next_power_of_2(E),
         BLOCK_T=triton.next_power_of_2(n_tiles_cap),
         # An expert appears at most once per row.
-        MAX_T=triton.cdiv(max(1, draft_rows), _BM),
+        MAX_T=triton.cdiv(max(1, computed_rows), _BM),
+        INCLUDE_FIRST_ROW=include_first_row,
     )
     gate_up_bn = 32
     _gate_up_kernel[(n_tiles_cap, triton.cdiv(I, gate_up_bn))](

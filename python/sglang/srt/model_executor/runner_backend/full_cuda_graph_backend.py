@@ -70,6 +70,13 @@ def _wait_expert_pool_fences():
     wait_lk_moe_pool_fences(torch.cuda.current_stream().cuda_stream)
 
 
+def _note_gpu_expert_cache_replay():
+    """Let the GPU expert cache fence its slot overwrites behind this launch."""
+    from sglang.srt.layers.moe.gpu_expert_cache import note_replay
+
+    note_replay(torch.cuda.current_stream())
+
+
 def _allocate_output_buffer(output: Any) -> Optional[Any]:
     """Same-structure buffer for a tensor or a (nested) list/tuple of
     row-major tensors; None when any leaf is something else."""
@@ -262,6 +269,7 @@ class FullCudaGraphBackend(BaseCudaGraphBackend):
                 # stream (det_split publishes at fence-record, not at DMA
                 # completion): make the launch stream wait for them.
                 _wait_expert_pool_fences()
+                _note_gpu_expert_cache_replay()
                 self._graphs[shape_key].replay()
         return self._outputs[shape_key]
 

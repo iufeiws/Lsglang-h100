@@ -47,14 +47,14 @@ def _dequant(packed, scales):
     return w * scale
 
 
-def _reference(x, ids, weights, slot_tab, w13, s13, w2, s2, rows_per_request, limit):
+def _reference(x, ids, weights, slot_tab, w13, s13, w2, s2, rows_per_request, limit, include_first):
     rows, k = ids.shape
     H = x.shape[1]
     I = w13.shape[1] // 2
     out = torch.zeros(rows * k, H)
     for slot in range(rows * k):
         row, e = slot // k, int(ids.flatten()[slot])
-        if e < 0 or slot_tab[slot] >= 0 or row % rows_per_request == 0:
+        if e < 0 or slot_tab[slot] >= 0 or (row % rows_per_request == 0 and not include_first):
             continue
         w_up = _dequant(w13[e], s13[e])
         h = w_up @ x[row].float()
@@ -102,7 +102,8 @@ def test_self_check_rejects_wrong_addresses():
 
 @pytest.mark.parametrize("requests", [1, 3])
 @pytest.mark.parametrize("limit", [0.0, 7.0])
-def test_draft_miss_matches_reference(requests, limit):
+@pytest.mark.parametrize("include_first", [False, True])
+def test_draft_miss_matches_reference(requests, limit, include_first):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(requests * 10 + int(limit))
     E, H, I, k, rpr = 12, 256, 128, 4, 3
@@ -119,19 +120,21 @@ def test_draft_miss_matches_reference(requests, limit):
     slot_tab = torch.where(torch.rand(rows * k) < 0.4, torch.randint(0, 8, (rows * k,)), -1).int()
     x = torch.randn(rows, H).bfloat16()
     weights = torch.rand(rows, k)
-    expected = _reference(x, ids, weights, slot_tab, w13, s13, w2, s2, rpr, limit)
+    expected = _reference(x, ids, weights, slot_tab, w13, s13, w2, s2, rpr, limit, include_first)
 
     to = lambda t: t.to(device)  # noqa: E731
     scratch = UvaScratch.allocate(num_experts=E, max_slots=rows * k, intermediate=I, device=device)
     gout_part = torch.full((rows * k, H), float("nan"), device=device)
     keep = to(torch.tensor([
-        int(ids.flatten()[s]) < 0 or slot_tab[s] >= 0 or (s // k) % rpr == 0
+        int(ids.flatten()[s]) < 0 or slot_tab[s] >= 0
+        or ((s // k) % rpr == 0 and not include_first)
         for s in range(rows * k)
     ]))
     launch_draft_miss_uva(
         hidden_states=to(x), topk_ids=to(ids), topk_weights=to(weights),
         slot_tab=to(slot_tab), gout_part=gout_part, rows_per_request=rpr,
         host=host, scratch=scratch, activation=0, alpha=1.702, limit=limit,
+        include_first_row=include_first,
     )
     if device == "cuda":
         torch.cuda.synchronize()
@@ -140,3 +143,36 @@ def test_draft_miss_matches_reference(requests, limit):
     computed = ~keep.cpu()
     assert computed.any()
     torch.testing.assert_close(gout_part.cpu()[computed], expected[computed], rtol=2e-4, atol=1e-3)
+
+
+def test_cache_mode_computes_every_route_and_counts_them():
+    """Without a pool slot table every local route is computed and counted in ``hist``."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    torch.manual_seed(7)
+    E, H, I, k, rows = 10, 128, 64, 3, 4
+    w13 = torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8)
+    s13 = torch.randint(118, 124, (E, 2 * I, H // 32), dtype=torch.uint8)
+    w2 = torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8)
+    s2 = torch.randint(118, 124, (E, H, I // 32), dtype=torch.uint8)
+    host, _storage = _scattered_host(w13, s13, w2, s2, torch.randperm(E), device)
+    ids = torch.stack([torch.randperm(E)[:k] for _ in range(rows)]).int()
+    ids[1, 0] = -1
+    x = torch.randn(rows, H).bfloat16()
+    weights = torch.rand(rows, k)
+    no_pool = torch.full((rows * k,), -1, dtype=torch.int32)
+    expected = _reference(x, ids, weights, no_pool, w13, s13, w2, s2, 1, 0.0, True)
+
+    to = lambda t: t.to(device)  # noqa: E731
+    scratch = UvaScratch.allocate(num_experts=E, max_slots=rows * k, intermediate=I, device=device)
+    hist = torch.zeros(E, dtype=torch.int32, device=device)
+    for _ in range(2):
+        gout_part = torch.zeros((rows * k, H), device=device)
+        launch_draft_miss_uva(
+            hidden_states=to(x), topk_ids=to(ids), topk_weights=to(weights),
+            slot_tab=None, gout_part=gout_part, rows_per_request=1,
+            host=host, scratch=scratch, activation=0, alpha=1.702, limit=0.0,
+            include_first_row=True, hist=hist,
+        )
+    torch.testing.assert_close(gout_part.cpu(), expected, rtol=2e-4, atol=1e-3)
+    local = ids.flatten()[ids.flatten() >= 0].long()
+    assert torch.equal(hist.cpu(), 2 * torch.bincount(local, minlength=E).int())
