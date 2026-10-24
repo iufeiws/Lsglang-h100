@@ -2490,8 +2490,11 @@ class FusedMoE(torch.nn.Module):
             H=H, I=I, k=k, NB_GATEUP=NB_GATEUP, NB_DOWN=NB_DOWN,
             NGK=NGK, KS=KS, ITERS=ITERS, **caps,
         )
-        # Keep the original GEMV on decode and other hardware/formats. The
-        # Hopper verify path reuses the same frozen slot table and buffers.
+        # Keep verify on the same GEMV arithmetic as decode by default.
+        # The optional Hopper GEMM rounds post-SiLU activations to BF16;
+        # GEMV retains FP32. A self-reference test of that GEMM does not
+        # establish target-logit parity or speculative decoding correctness.
+        # Require an explicit opt-in until end-to-end quality is validated.
         self._pool_verify_gemm = (
             torch.cuda.get_device_capability()[0] == 9
             and caps["format"] == "mxfp4"
@@ -2499,7 +2502,7 @@ class FusedMoE(torch.nn.Module):
             and PK == 2 and SSZ == 1
             and caps["has_gate"] and caps["activation"] == 0
             and H % 32 == 0 and I % 32 == 0
-            and get_bool_env_var("LK_VERIFY_GEMM", default="true")
+            and get_bool_env_var("LK_VERIFY_GEMM", default="false")
         )
         if (self._pool_verify_gemm
                 and get_exec().moe.flashinfer_mxfp4_moe_precision == "fp8"
