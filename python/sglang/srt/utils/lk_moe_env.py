@@ -155,6 +155,12 @@ def get_verify_skip_miss() -> int:
     return get_int_env_var("LK_VERIFY_SKIP_MISS", 0)
 
 
+def is_lk_ep_fill_remote_routes() -> bool:
+    # Diagnostic A/B, default off: under EP>1 hand LK an unused local expert
+    # with weight 0 instead of the -1 drop sentinel (native never sees -1).
+    return get_bool_env_var("LK_EP_FILL_REMOTE_ROUTES")
+
+
 def get_hf_mbox() -> int:
     # mailbox early-start decode path (default on; 0 = pure host-node path).
     return get_int_env_var("LK_HF_MBOX", 1)

@@ -106,6 +106,7 @@ _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 
 logger = logging.getLogger(__name__)
 
+from sglang.srt.utils.lk_moe_env import is_lk_ep_fill_remote_routes
 from sglang.srt.utils.common import is_lk_moe_feature_enabled, is_lk_pool_enabled, get_pool_log, get_verify_resident, get_verify_skip_miss, get_hf_mbox, get_pool_inflight, is_lk_prefill_debug, is_lk_moe_gpu_resident_layer, get_gpu_prefetch_window, get_gpu_prefill_min_tokens, get_gpu_prefill_engine, get_pool_window, get_super_chunk_size, get_bool_env_var, is_lk_gpu_prefill_enabled, get_model_type_from_layer_name, is_lk_pool_layer, get_pool_slots, is_lk_pool_decode_enabled, lk_route_probe_enabled, get_prefill_wave_experts
 from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import CompressedTensorsFusedMoEMethod
 from sglang.srt.model_executor.runner import get_is_capture_mode
@@ -160,6 +161,22 @@ def _fuses_routed_scaling_factor_in_topk(quant_method) -> bool:
             and get_moe_runner_backend().is_flashinfer_trtllm_routed()
         )
     )
+
+
+def _fill_remote_routes(topk_ids, topk_weights):
+    """Replace EP drop sentinels (-1) with an expert absent from the row, at weight 0.
+
+    Candidates 0..k always hold one id the row does not use, so no real route is
+    duplicated; the zero weight keeps the MoE output unchanged.
+    """
+    k = topk_ids.shape[1]
+    candidates = torch.arange(k + 1, device=topk_ids.device, dtype=topk_ids.dtype)
+    present = (topk_ids.unsqueeze(-1) == candidates).any(dim=1)
+    unused = torch.argmin(present.to(torch.int8), dim=1).to(topk_ids.dtype)
+    remote = topk_ids < 0
+    ids = torch.where(remote, unused.unsqueeze(1), topk_ids)
+    weights = torch.where(remote, torch.zeros_like(topk_weights), topk_weights)
+    return ids, weights
 
 
 def _copy_weight_view_before_h2d(loaded_weight: torch.Tensor) -> torch.Tensor:
@@ -367,6 +384,7 @@ class FusedMoE(torch.nn.Module):
     # Verify-batch row multiplier (NEXTN draft rows per real token) agreed
     # across pool layers at init; single source of truth for decode sizing.
     _pool_verify_rows_mult = 1
+    _pool_wait_fence_warned = False
 
     def __init__(
         self,
@@ -600,6 +618,9 @@ class FusedMoE(torch.nn.Module):
         self.is_pool_layer = is_lk_pool_layer(self.layer_id, self.model_type)
         self.route_probe = lk_route_probe_enabled()
         self.pool_decode = is_lk_pool_decode_enabled() and self.is_pool_layer
+        self.lk_ep_fill_remote_routes = (
+            is_lk_ep_fill_remote_routes() and self.moe_ep_size > 1
+        )
 
         self._gpu_prefill_driver = None
         self._pool_layer_info = None
@@ -1733,27 +1754,26 @@ class FusedMoE(torch.nn.Module):
                 dispatch_output=dispatch_output,
             )
         
+        topk_weights = dispatch_output.topk_output.topk_weights
+        topk_ids = dispatch_output.topk_output.topk_ids
+        if self.lk_ep_fill_remote_routes:
+            topk_ids, topk_weights = _fill_remote_routes(topk_ids, topk_weights)
+
         # 2. CPU resident layer: mixed path or capture mode
         # Decode: CUDA capturing or capture mode
         if torch.cuda.is_current_stream_capturing() or get_is_capture_mode():
             lk_result = self._cpu_decode(
-                dispatch_output.hidden_states,
-                dispatch_output.topk_output.topk_weights,
-                dispatch_output.topk_output.topk_ids,
+                dispatch_output.hidden_states, topk_weights, topk_ids,
             )
         # Prefill large input: GPU computation
         elif self.should_prefill_gpu(dispatch_output.hidden_states):
             lk_result = self._gpu_prefill(
-                dispatch_output.hidden_states,
-                dispatch_output.topk_output.topk_weights,
-                dispatch_output.topk_output.topk_ids,
+                dispatch_output.hidden_states, topk_weights, topk_ids,
             )
         # Prefill short input: plain CPU path (below the GPU prefill tier).
         else:
             lk_result = self._cpu_prefill(
-                dispatch_output.hidden_states,
-                dispatch_output.topk_output.topk_weights,
-                dispatch_output.topk_output.topk_ids,
+                dispatch_output.hidden_states, topk_weights, topk_ids,
             )
             
         fused = isinstance(
@@ -2475,6 +2495,8 @@ class FusedMoE(torch.nn.Module):
             FusedMoE.pool_hpart = torch.zeros((NGK, rows, 2 * I), dtype=torch.float32, device=dev)
             FusedMoE.pool_gout_part = torch.zeros((rows, H), dtype=torch.float32, device=dev)
         self._pool_layer_info = dict(
+            # pool_wait_fence / pool_*_slot address the pool by this layer id.
+            layer=self.layer_id,
             snapshot_addr=info["snapshot_addr"],
             weight_addr=info["weight_addr"], scale_addr=info["scale_addr"],
             slot_bytes=info["slot_weight_bytes"],
@@ -2535,8 +2557,13 @@ class FusedMoE(torch.nn.Module):
         if _LK_POOL_DET_SPLIT:
             try:
                 lk_moe.pool_wait_fence(geo["layer"], side_stream.cuda_stream)
-            except Exception:
-                pass
+            except Exception as e:
+                # A failed fence leaves LK_POOL_DET_SPLIT=1 a silent no-op.
+                if not FusedMoE._pool_wait_fence_warned:
+                    FusedMoE._pool_wait_fence_warned = True
+                    logger.warning(
+                        "LK_POOL_DET_SPLIT: pool_wait_fence failed for layer %s: %r",
+                        geo["layer"], e)
         with torch.cuda.stream(side_stream):
             if rows_per_token > 1:
                 gather_rows[(triton.cdiv(n_slots, 128),)](

@@ -167,7 +167,9 @@ class TargetVerifyExecutor:
         override drawn by begin_simulated_step.
         """
         if folded_accept:
-            return self.verify_epilogue.read_accept(bs)
+            # read_accept views graph output buffers the next replay rewrites,
+            # while the scheduler's copy stream may still be reading them.
+            return self.verify_epilogue.read_accept(bs).clone()
 
         simulate = self._simulated_correct_len is not None
         # Simulated acceptance overwrites correct_len below, so a sampling accept
@@ -528,6 +530,17 @@ class AcceptOuts(msgspec.Struct):
     commit_lens: torch.Tensor
     new_seq_lens: torch.Tensor
     out_tokens: torch.Tensor
+
+    def clone(self) -> "AcceptOuts":
+        """Own this step's result independently of the next graph replay."""
+        return AcceptOuts(
+            correct_len=self.correct_len.clone(),
+            bonus=self.bonus.clone(),
+            cap_trim_lens=self.cap_trim_lens.clone(),
+            commit_lens=self.commit_lens.clone(),
+            new_seq_lens=self.new_seq_lens.clone(),
+            out_tokens=self.out_tokens.clone(),
+        )
 
 
 class DsparkVerifyEpilogue:
