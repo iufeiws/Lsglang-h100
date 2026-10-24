@@ -8,7 +8,6 @@ import torch
 import triton
 import triton.language as tl
 
-from sglang.kernels.ops.gemm.h100_fp8_config import get_h100_block_fp8_config
 from sglang.srt.layers import deep_gemm_wrapper
 from sglang.srt.runtime_context import get_platform
 from sglang.srt.utils import (
@@ -604,21 +603,8 @@ def get_w8a8_block_fp8_configs(
 
         return sanitized
 
-    # No exact tuned file: the bounded H100 profile is selected per call (M),
-    # so keep returning None here rather than nearest-neighbour extrapolating
-    # a small-M tile into a large prefill.
-    if (
-        get_platform().is_sm90
-        and get_h100_block_fp8_config(1, N, K, block_n, block_k, device_name) is not None
-    ):
-        log_info_on_rank0(
-            logger,
-            f"Using bundled H100 block-FP8 small-M profiles for N={N}, K={K} "
-            "when M<=96; larger M retains the default. Profiles are not GPU-autotuned.",
-        )
-        return None
-
-    # If no optimized configuration is available, use the default configuration.
+    # If no optimized configuration is available, we will use the default
+    # configuration
     logger.warning(
         (
             "Using default W8A8 Block FP8 kernel config. Performance might be sub-optimal! "
@@ -832,12 +818,6 @@ def w8a8_block_fp8_matmul_triton(
             "num_warps": 4,
             "num_stages": 3,
         }
-        if get_platform().is_sm90 and not torch._dynamo.is_compiling():
-            h100_config = get_h100_block_fp8_config(
-                M, N, K, block_n, block_k, get_device_name()
-            )
-            if h100_config is not None:
-                config = h100_config
 
     # Split-K accumulates K in SPLIT_K separate fp32 partials, so its results
     # do not match the single-accumulator kernels bit-for-bit.
