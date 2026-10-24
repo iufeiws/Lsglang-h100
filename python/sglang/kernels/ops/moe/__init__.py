@@ -31,6 +31,19 @@ register_kernel(
 
 register_kernel(
     KernelSpec(
+        op="moe.lk_verify_draft_miss_uva",
+        backend=KernelBackend.TRITON,
+        target="sglang.kernels.ops.moe.lk_verify_uva:launch_draft_miss_uva",
+        capabilities=frozenset({CapabilityRequirement.cuda(min_sm=(9, 0))}),
+        description=(
+            "MXFP4 MoE of DSPARK draft-row LK pool misses, weights read from "
+            "pinned host memory over UVA."
+        ),
+    )
+)
+
+register_kernel(
+    KernelSpec(
         op="moe.moe_align_block_size",
         backend=KernelBackend.AOT,
         target="sgl_kernel:moe_align_block_size",

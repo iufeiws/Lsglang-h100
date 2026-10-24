@@ -155,6 +155,12 @@ def get_verify_skip_miss() -> int:
     return get_int_env_var("LK_VERIFY_SKIP_MISS", 0)
 
 
+def is_lk_verify_uva_enabled() -> bool:
+    # DSPARK verify: compute draft-row pool misses on the GPU from pinned host
+    # experts (UVA) instead of the CPU; pins the pool layers' experts at load.
+    return get_bool_env_var("LK_VERIFY_UVA")
+
+
 def get_hf_mbox() -> int:
     # mailbox early-start decode path (default on; 0 = pure host-node path).
     return get_int_env_var("LK_HF_MBOX", 1)
