@@ -2629,7 +2629,15 @@ class FusedMoE(torch.nn.Module):
         else:
             gathered_ids, gathered_weights = topk_ids, topk_weights
         side_stream.wait_stream(torch.cuda.current_stream())
-        if _LK_POOL_DET_SPLIT:
+        if _LK_POOL_DET_SPLIT and torch.cuda.is_current_stream_capturing():
+            # The fence waits on an event recorded outside the graph, which
+            # invalidates the capture (seen at the 3rd verify batch size on H100).
+            if not FusedMoE._pool_wait_fence_warned:
+                FusedMoE._pool_wait_fence_warned = True
+                logger.warning(
+                    "LK_POOL_DET_SPLIT=1 cannot be used with CUDA graphs and has no "
+                    "effect inside them; unset it")
+        elif _LK_POOL_DET_SPLIT:
             try:
                 lk_moe.pool_wait_fence(geo["layer"], side_stream.cuda_stream)
             except Exception as e:
