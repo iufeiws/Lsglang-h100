@@ -1,0 +1,55 @@
+{
+  "tag": "w4a8chunk_single",
+  "started": "2026-10-24T22:03:37+08:00",
+  "k": 1,
+  "max_tokens": 1000,
+  "temperature": 0.7,
+  "prompt_uniq": 1,
+  "wall_s": 11.396288871765137,
+  "n_ok": 1,
+  "n_err": 0,
+  "errors": [],
+  "ttft": {
+    "p50": 0.48410844802856445,
+    "p10": 0.48410844802856445,
+    "p90": 0.48410844802856445,
+    "mean": 0.48410844802856445,
+    "n": 1
+  },
+  "decode_tok_s": {
+    "p50": 91.56487943766912,
+    "p10": 91.56487943766912,
+    "p90": 91.56487943766912,
+    "mean": 91.56487943766912,
+    "n": 1
+  },
+  "ms_per_step": {
+    "p50": 10.921217896439531,
+    "p10": 10.921217896439531,
+    "p90": 10.921217896439531,
+    "mean": 10.921217896439531,
+    "n": 1
+  },
+  "total_tok_s": {
+    "p50": 87.7513129785267,
+    "p10": 87.7513129785267,
+    "p90": 87.7513129785267,
+    "mean": 87.7513129785267,
+    "n": 1
+  },
+  "sum_completion_tokens": 1000,
+  "note": "decode tok/s 用 usage.completion_tokens 计; SSE 事件计数见 events 列 (会低估 accept-len 倍)",
+  "overlap_window": {
+    "window_s": 10.91029667854309,
+    "tokens": 999.0,
+    "agg_tok_s": 91.56487943766912
+  },
+  "vram_csv": "/mnt/SSD01/models/.llm-env/Lsglang/logs/bench_w4a8chunk_single_20261024_220326.vram.csv",
+  "per_stream_csv": "/mnt/SSD01/models/.llm-env/Lsglang/logs/bench_w4a8chunk_single_20261024_220326.csv",
+  "vram_max_mib": {
+    "gpu4": 78767,
+    "gpu5": 76642,
+    "gpu6": 76642,
+    "gpu7": 76382
+  }
+}

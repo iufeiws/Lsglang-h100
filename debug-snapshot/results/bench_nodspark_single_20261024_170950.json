@@ -1,0 +1,53 @@
+{
+  "tag": "nodspark_single",
+  "started": "2026-10-24T17:09:50+08:00",
+  "k": 1,
+  "max_tokens": 1000,
+  "temperature": 0.7,
+  "prompt_uniq": 1,
+  "wall_s": 0.007208585739135742,
+  "n_ok": 0,
+  "n_err": 1,
+  "errors": [
+    "HTTPError('401 Client Error: Unauthorized for url: http://127.0.0.1:18010/v1/chat/completions')"
+  ],
+  "ttft": {
+    "p50": null,
+    "p10": null,
+    "p90": null,
+    "mean": null,
+    "n": 0
+  },
+  "decode_tok_s": {
+    "p50": null,
+    "p10": null,
+    "p90": null,
+    "mean": null,
+    "n": 0
+  },
+  "ms_per_step": {
+    "p50": null,
+    "p10": null,
+    "p90": null,
+    "mean": null,
+    "n": 0
+  },
+  "total_tok_s": {
+    "p50": null,
+    "p10": null,
+    "p90": null,
+    "mean": null,
+    "n": 0
+  },
+  "sum_completion_tokens": 0,
+  "note": "decode tok/s 用 usage.completion_tokens 计; SSE 事件计数见 events 列 (会低估 accept-len 倍)",
+  "overlap_window": null,
+  "vram_csv": "/mnt/SSD01/models/.llm-env/Lsglang/logs/bench_nodspark_single_20261024_170950.vram.csv",
+  "per_stream_csv": "/mnt/SSD01/models/.llm-env/Lsglang/logs/bench_nodspark_single_20261024_170950.csv",
+  "vram_max_mib": {
+    "gpu4": 78547,
+    "gpu5": 76782,
+    "gpu6": 76782,
+    "gpu7": 76522
+  }
+}
