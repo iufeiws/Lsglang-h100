@@ -189,3 +189,48 @@ def test_eager_plan_splits_hot_experts_across_tiles():
     torch.testing.assert_close(gout_part.cpu(), expected, rtol=2e-4, atol=1e-3)
     local = ids.flatten()[ids.flatten() >= 0].long()
     assert torch.equal(hist.cpu(), torch.bincount(local, minlength=E).int())
+
+
+def test_route_to_slots_sends_unslotted_routes_to_the_miss_kernel():
+    """Slotted routes go to the CUTLASS ids; the rest (remote -1 aside) to the UVA kernel."""
+    from sglang.kernels.ops.moe.lk_verify_uva import route_to_slots
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    torch.manual_seed(5)
+    E, H, I, k, rows, S = 8, 128, 64, 3, 70, 4
+    w13 = torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8)
+    s13 = torch.randint(118, 124, (E, 2 * I, H // 32), dtype=torch.uint8)
+    w2 = torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8)
+    s2 = torch.randint(118, 124, (E, H, I // 32), dtype=torch.uint8)
+    host, _storage = _scattered_host(w13, s13, w2, s2, torch.randperm(E), device)
+    ids = torch.stack([torch.randperm(E)[:k] for _ in range(rows)]).int()
+    ids[::3, 1] = -1
+    slot_of = torch.full((E,), -1, dtype=torch.int32)
+    slot_of[torch.tensor([6, 1, 3, 0])] = torch.arange(S, dtype=torch.int32)
+    x = torch.randn(rows, H).bfloat16()
+    weights = torch.rand(rows, k)
+
+    to = lambda t: t.to(device)  # noqa: E731
+    slot_ids = torch.empty(rows * k, dtype=torch.int32, device=device)
+    miss_tab = torch.empty(rows * k, dtype=torch.int32, device=device)
+    hist = torch.zeros(E, dtype=torch.int32, device=device)
+    route_to_slots(topk_ids=to(ids), slot_of=to(slot_of), slot_ids=slot_ids,
+                   miss_tab=miss_tab, hist=hist, miss_id=S)
+    flat = ids.flatten().long()
+    want_slot = torch.where(flat >= 0, slot_of[flat.clamp(min=0)], -1)
+    assert torch.equal(miss_tab.cpu(), want_slot)
+    assert torch.equal(slot_ids.cpu(), torch.where(want_slot >= 0, want_slot, S))
+    assert torch.equal(hist.cpu(), torch.bincount(flat[flat >= 0], minlength=E).int())
+
+    expected = _reference(x, ids, weights, want_slot, w13, s13, w2, s2, 1, 0.0, True)
+    scratch = UvaScratch.allocate(num_experts=E, max_slots=1, intermediate=I, device=device)
+    gout_part = torch.full((rows * k, H), float("nan"), device=device)
+    launch_draft_miss_uva(
+        hidden_states=to(x), topk_ids=to(ids), topk_weights=to(weights),
+        slot_tab=miss_tab, gout_part=gout_part, rows_per_request=1,
+        host=host, scratch=scratch, activation=0, alpha=1.702, limit=0.0,
+        include_first_row=True, eager_plan=True,
+    )
+    miss = (flat >= 0) & (want_slot < 0)
+    assert torch.isnan(gout_part.cpu()[~miss]).all()
+    torch.testing.assert_close(gout_part.cpu()[miss], expected[miss], rtol=2e-4, atol=1e-3)

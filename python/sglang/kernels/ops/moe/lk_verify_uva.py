@@ -424,11 +424,14 @@ def _plan_graph(*, topk_ids, slot_tab, rows_per_request, include_first_row, hist
                   scratch.tile_count, scratch.mid, n_tiles_cap, _BM)
 
 
-def _plan_eager(*, topk_ids, hist, num_experts, intermediate) -> _Tiles:
+def _plan_eager(*, topk_ids, slot_tab, hist, num_experts, intermediate) -> _Tiles:
     """Host-sized plan for any batch (e.g. prefill tails); not graph capturable."""
     bm = 64
     ids = topk_ids.reshape(-1)
-    slots = torch.nonzero(ids >= 0).squeeze(1)
+    need = ids >= 0
+    if slot_tab is not None:
+        need &= slot_tab < 0
+    slots = torch.nonzero(need).squeeze(1)
     experts = ids[slots].long()
     experts, perm = torch.sort(experts, stable=True)
     order = slots[perm].to(torch.int32)
@@ -471,7 +474,7 @@ def launch_draft_miss_uva(
     also computes row 0 of each request (every row of a plain decode batch with
     ``rows_per_request=1``); ``hist`` [E] int32 accumulates the computed routes per
     expert. ``eager_plan`` plans on the host for batches larger than ``scratch``
-    (every row, no slot table; not capturable). Enqueued on the current stream.
+    (every row; not capturable). Enqueued on the current stream.
     ``gout_part`` rows of other slots are untouched, so the caller zeroes them and
     the pool GEMV fills the resident ones.
     """
@@ -484,8 +487,9 @@ def launch_draft_miss_uva(
     assert topk_ids.is_contiguous() and topk_weights.is_contiguous()
     assert topk_weights.dtype == torch.float32
     if eager_plan:
-        assert slot_tab is None and include_first_row
-        tiles = _plan_eager(topk_ids=topk_ids, hist=hist, num_experts=E, intermediate=I)
+        assert include_first_row
+        tiles = _plan_eager(topk_ids=topk_ids, slot_tab=slot_tab, hist=hist,
+                            num_experts=E, intermediate=I)
         if tiles.n_tiles == 0:
             return
     else:
@@ -533,3 +537,32 @@ def launch_draft_miss_uva(
         TC=tc,
         num_warps=dn.num_warps,
     )
+
+
+@triton.jit
+def _route_to_slots_kernel(
+    ids_ptr, slot_of_ptr, slot_ids_ptr, miss_tab_ptr, hist_ptr, n, miss_id,
+    BLOCK: tl.constexpr,
+):
+    s = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    live = s < n
+    expert = tl.load(ids_ptr + s, mask=live, other=-1)
+    local = live & (expert >= 0)
+    slot = tl.load(slot_of_ptr + expert, mask=local, other=-1)
+    tl.store(slot_ids_ptr + s, tl.where(slot >= 0, slot, miss_id), mask=live)
+    tl.store(miss_tab_ptr + s, slot, mask=live)
+    tl.atomic_add(hist_ptr + expert, 1, mask=local)
+
+
+def route_to_slots(*, topk_ids, slot_of, slot_ids, miss_tab, hist, miss_id: int) -> None:
+    """Map local expert ids to VRAM slots; graph capturable.
+
+    ``slot_ids`` gets the slot of each route, or ``miss_id`` for a route not in a slot
+    (non-resident, or -1 for an EP-remote expert). ``miss_tab`` gets the slot or -1,
+    the ``slot_tab`` of :func:`launch_draft_miss_uva`. ``hist`` [E] counts every
+    local route, resident or not.
+    """
+    n = topk_ids.numel()
+    block = 1024
+    _route_to_slots_kernel[(triton.cdiv(n, block),)](
+        topk_ids, slot_of, slot_ids, miss_tab, hist, n, miss_id, BLOCK=block)
