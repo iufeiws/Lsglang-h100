@@ -191,108 +191,81 @@ def test_eager_plan_splits_hot_experts_across_tiles():
     assert torch.equal(hist.cpu(), torch.bincount(local, minlength=E).int())
 
 
-class _Rows:
-    """Per-layer staging state of one test: held experts, prefetch flags, counters."""
+class _Cache:
+    """One layer's residency state: expert <-> row tables, scores, counters."""
 
-    def __init__(self, P, E, device):
+    def __init__(self, E, R, max_copy, device):
         from sglang.kernels.ops.moe.lk_verify_uva import MISS_BUCKETS, STAT_COUNT
 
         i32 = lambda *shape: torch.zeros(shape, dtype=torch.int32, device=device)  # noqa: E731
-        self.stage_expert = torch.full((P,), -1, dtype=torch.int32, device=device)
-        self.row_pending, self.row_count = i32(P), i32(P)
-        self.stats, self.miss_hist, self.hist = i32(STAT_COUNT), i32(MISS_BUCKETS), i32(E)
-        self.scratch = (i32(E), i32(P), i32(P))
+        self.slot_of = torch.full((E,), -1, dtype=torch.int32, device=device)
+        self.slot_of[:R] = torch.arange(R, dtype=torch.int32, device=device)
+        self.row_expert = torch.arange(R, dtype=torch.int32, device=device)
+        self.score = torch.zeros(E, device=device)
+        self.counts = i32(E)
+        self.copy_row, self.copy_expert = i32(max_copy), i32(max_copy)
+        self.stats, self.miss_hist = i32(STAT_COUNT), i32(MISS_BUCKETS)
+
+    def admit(self, ids, decay):
+        from sglang.kernels.ops.moe.lk_verify_uva import admit_misses
+
+        slot_ids = torch.empty(ids.numel(), dtype=torch.int32, device=ids.device)
+        miss_tab = torch.empty(ids.numel(), dtype=torch.int32, device=ids.device)
+        admit_misses(topk_ids=ids, slot_of=self.slot_of, row_expert=self.row_expert,
+                     score=self.score, counts=self.counts, copy_row=self.copy_row,
+                     copy_expert=self.copy_expert, slot_ids=slot_ids, miss_tab=miss_tab,
+                     stats=self.stats, miss_hist=self.miss_hist, decay=decay)
+        return slot_ids.cpu(), miss_tab.cpu()
 
 
-def _assign(ids, slot_of, rows, *, S, P, items_per_row=1):
-    from sglang.kernels.ops.moe.lk_verify_uva import assign_slots
-
-    mark, free_rows, copy_expert = rows.scratch
-    slot_ids = torch.empty(ids.numel(), dtype=torch.int32, device=ids.device)
-    miss_tab = torch.empty(ids.numel(), dtype=torch.int32, device=ids.device)
-    assign_slots(topk_ids=ids, slot_of=slot_of, mark=mark, free_rows=free_rows,
-                 stage_expert=rows.stage_expert, row_pending=rows.row_pending,
-                 row_count=rows.row_count, copy_expert=copy_expert, slot_ids=slot_ids,
-                 miss_tab=miss_tab, hist=rows.hist, stats=rows.stats, miss_hist=rows.miss_hist,
-                 num_slots=S, num_staging=P, items_per_row=items_per_row)
-    return dict(slot_ids=slot_ids.cpu(), miss_tab=miss_tab.cpu(), copy_expert=copy_expert.cpu())
-
-
-def _prefetch(ids, slot_of, rows, *, P, max_prefetch):
-    from sglang.kernels.ops.moe.lk_verify_uva import prefetch_assign
-
-    votes, free_rows, copy_expert = rows.scratch
-    prefetch_assign(topk_ids=ids, slot_of=slot_of, votes=votes, free_rows=free_rows,
-                    stage_expert=rows.stage_expert, row_pending=rows.row_pending,
-                    row_count=rows.row_count, copy_expert=copy_expert, stats=rows.stats,
-                    num_staging=P, max_prefetch=max_prefetch)
-    return copy_expert.cpu()
-
-
-def test_assign_slots_keeps_held_rows_and_prefetches():
-    """Missed experts already in a staging row (prefetched or left by an earlier forward)
-    are served without a copy, others take rows not holding a missed expert, and the
-    remainder overflow to UVA; a prefetch fills rows with the most-voted predictions."""
+def test_admit_misses_evicts_unrouted_low_score_rows():
+    """Missed experts (highest score first, at most the copy list) replace the experts
+    of rows this forward does not route (lowest score first); the rest overflow to UVA,
+    -1 routes are skipped, and the tables stay inverse of each other."""
     from sglang.kernels.ops.moe.lk_verify_uva import (
+        STAT_ADMITTED,
         STAT_OVERFLOW,
-        STAT_PREFETCH_USED,
-        STAT_PREFETCHED,
         STAT_ROUTES,
-        STAT_SLOT_HITS,
-        STAT_STAGE_COPIED,
-        STAT_STAGE_KEPT,
+        STAT_ROW_HITS,
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    E, S, P = 10, 3, 3
-    slot_of = torch.full((E,), -1, dtype=torch.int32)
-    slot_of[torch.tensor([0, 1, 2])] = torch.arange(S, dtype=torch.int32)
-    slot_of = slot_of.to(device)
-    rows = _Rows(P, E, device)
-    # Predictions vote 7 twice and 8 once (1 is in a slot); a budget of 1 takes 7.
-    pred = torch.tensor([[7, 1], [7, 8]], dtype=torch.int32, device=device)
-    assert _prefetch(pred, slot_of, rows, P=P, max_prefetch=1).tolist() == [7, -1, -1]
-    assert rows.stage_expert.cpu().tolist() == [7, -1, -1]
-    assert rows.row_pending.cpu().tolist() == [1, 0, 0]
-    assert int(rows.stats[STAT_PREFETCHED]) == 1
-    rows.row_count[0] = 4  # the prefetch copy has finished its 4 items
-    # The forward misses 4, 5, 6, 7 (and 9 twice); remote -1 is skipped.
-    ids = torch.tensor([[0, 7, 4], [5, -1, 9], [6, 9, 2]], dtype=torch.int32, device=device)
-    out = _assign(ids, slot_of, rows, S=S, P=P, items_per_row=4)
-    # 7 keeps row 0; 4 and 5 take rows 1 and 2 (expert order); 6 and 9 overflow.
-    assert out["copy_expert"].tolist() == [-1, 4, 5]
-    assert rows.stage_expert.cpu().tolist() == [7, 4, 5]
-    assert rows.row_pending.cpu().tolist() == [0, 0, 0]
-    skip = S + P
-    assert out["slot_ids"].tolist() == [0, S + 0, S + 1, S + 2, skip, skip, skip, skip, 2]
-    assert out["miss_tab"].tolist() == [0, 0, 0, 0, 0, -1, -1, -1, 0]
-    st = rows.stats.cpu()
-    assert (int(st[STAT_ROUTES]), int(st[STAT_SLOT_HITS])) == (8, 2)
-    assert (int(st[STAT_STAGE_KEPT]), int(st[STAT_STAGE_COPIED]), int(st[STAT_OVERFLOW])) == (1, 2, 2)
-    assert int(st[STAT_PREFETCH_USED]) == 1
-    assert rows.miss_hist.cpu().tolist().index(1) == 5  # one forward with 5 distinct misses
-    assert rows.hist.cpu().tolist() == [1, 0, 1, 0, 1, 1, 1, 1, 0, 2]
-    # Next forward misses only 5 and 9: 5 keeps row 2, 9 refills a row held by 7 or 4.
-    out = _assign(torch.tensor([[5, 9]], dtype=torch.int32, device=device), slot_of, rows,
-                  S=S, P=P)
-    assert out["copy_expert"].tolist() == [9, -1, -1]
-    assert out["slot_ids"].tolist() == [S + 2, S + 0]
-    assert rows.stage_expert.cpu().tolist() == [9, 4, 5]
-    # A prefetch keeps rows holding a predicted expert (5) and refills others.
-    pred = torch.tensor([[5, 8], [8, 6]], dtype=torch.int32, device=device)
-    assert _prefetch(pred, slot_of, rows, P=P, max_prefetch=2).tolist() == [8, 6, -1]
-    assert rows.stage_expert.cpu().tolist() == [8, 6, 5]
-    assert rows.row_pending.cpu().tolist() == [1, 1, 0]
+    E, R = 10, 4
+    c = _Cache(E, R, max_copy=2, device=device)
+    # Rows hold 0..3. Misses 5, 6, 7 tie at score 1; rows 2, 3 (experts 2, 3) are free.
+    ids = torch.tensor([[0, 5, 6], [7, -1, 1]], dtype=torch.int32, device=device)
+    slot_ids, miss_tab = c.admit(ids, decay=0.5)
+    assert c.copy_row.cpu().tolist() == [2, 3] and c.copy_expert.cpu().tolist() == [5, 6]
+    assert slot_ids.tolist() == [0, 2, 3, R, R, 1]
+    assert miss_tab.tolist() == [0, 0, 0, -1, 0, 0]
+    assert c.row_expert.cpu().tolist() == [0, 1, 5, 6]
+    want = [-1] * E
+    for row, e in enumerate(c.row_expert.cpu().tolist()):
+        want[e] = row
+    assert c.slot_of.cpu().tolist() == want
+    st = c.stats.cpu()
+    assert [int(st[i]) for i in (STAT_ROUTES, STAT_ROW_HITS, STAT_ADMITTED, STAT_OVERFLOW)] == [5, 2, 2, 1]
+    assert c.miss_hist.cpu().tolist().index(1) == 3  # one forward, 3 distinct misses
+    # Next forward: 7 (score 0.5 + 1) is admitted before 2 (0 + 1); every row is free,
+    # all at score 0.5, so rows 0 and 1 go first.
+    slot_ids, _ = c.admit(torch.tensor([[2, 7]], dtype=torch.int32, device=device), decay=0.5)
+    assert c.copy_expert.cpu().tolist() == [7, 2] and c.copy_row.cpu().tolist() == [0, 1]
+    assert slot_ids.tolist() == [1, 0]
+    assert c.row_expert.cpu().tolist() == [7, 2, 5, 6]
+    torch.testing.assert_close(c.score.cpu()[[0, 2, 5, 7]], torch.tensor([0.5, 1.0, 0.5, 1.5]))
+    # A forward with no misses copies nothing.
+    c.admit(torch.tensor([[5, 6]], dtype=torch.int32, device=device), decay=0.5)
+    assert c.copy_expert.cpu().tolist() == [-1, -1]
 
 
-def test_assign_slots_stages_misses_and_overflows_the_rest_to_uva():
-    """Staged misses are copied into their rows with few persistent programs; overflow
-    routes alone are computed by the UVA kernel."""
-    from sglang.kernels.ops.moe.lk_verify_uva import stage_copy, stage_items_per_row
+def test_admitted_misses_are_copied_and_overflow_alone_runs_on_uva():
+    """Admitted experts' blocks land in their rows (other rows untouched); only the
+    overflow routes are computed by the UVA kernel."""
+    from sglang.kernels.ops.moe.lk_verify_uva import copy_experts
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(5)
-    E, H, I, k, rows, S, P = 8, 128, 64, 3, 70, 3, 2
+    E, H, I, k, rows, R, C = 8, 128, 64, 3, 70, 4, 2
     w13 = torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8)
     s13 = torch.randint(118, 124, (E, 2 * I, H // 32), dtype=torch.uint8)
     w2 = torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8)
@@ -300,51 +273,48 @@ def test_assign_slots_stages_misses_and_overflows_the_rest_to_uva():
     host, _storage = _scattered_host(w13, s13, w2, s2, torch.randperm(E), device)
     ids = torch.stack([torch.randperm(E)[:k] for _ in range(rows)]).int()
     ids[::3, 1] = -1
-    slot_of = torch.full((E,), -1, dtype=torch.int32)
-    slot_of[torch.tensor([6, 1, 0])] = torch.arange(S, dtype=torch.int32)
     x = torch.randn(rows, H).bfloat16()
     weights = torch.rand(rows, k)
-
     to = lambda t: t.to(device)  # noqa: E731
-    rows_state = _Rows(P, E, device)
-    out = _assign(to(ids), to(slot_of), rows_state, S=S, P=P)
-    flat = ids.flatten().long()
-    local = flat >= 0
-    slot = torch.where(local, slot_of[flat.clamp(min=0)], -1)
-    missed = sorted(set(flat[local & (slot < 0)].tolist()))
-    assert len(missed) > P
-    assert out["copy_expert"].tolist() == missed[:P]
-    overflow = local & (slot < 0) & (out["slot_ids"] == S + P)
-    assert torch.equal(out["miss_tab"] < 0, overflow)
+    c = _Cache(E, R, max_copy=C, device=device)
+    # Every expert is routed, so no row is free: nothing is admitted.
+    slot_ids, miss_tab = c.admit(to(ids), decay=1.0)
+    assert c.copy_expert.cpu().tolist() == [-1, -1]
+    # Route only rows' experts 0 and 1 plus misses: rows 2, 3 are free for two admissions.
+    ids = torch.stack([torch.tensor([r % 2, 4 + r % 4, -1]) for r in range(rows)]).int()
+    slot_ids, miss_tab = c.admit(to(ids), decay=1.0)
+    admitted = c.copy_expert.cpu().tolist()
+    assert len(set(admitted)) == C and min(admitted) >= 4
+    flat = ids.flatten()
+    overflow = (flat >= 4) & ~torch.isin(flat, torch.tensor(admitted, dtype=torch.int32))
+    assert torch.equal(miss_tab < 0, overflow)
 
-    # The copy reads each staged expert's 4 blocks and leaves the other rows alone.
     sources = [t.clone() for t in (w13, s13, w2, s2)]
     if device == "cuda":
         sources = [t.pin_memory() for t in sources]
-    slabs = [torch.zeros((S + P, *t.shape[1:]), dtype=torch.uint8, device=device) for t in sources]
+    slabs = [torch.zeros((R, *t.shape[1:]), dtype=torch.uint8, device=device) for t in sources]
     i64 = lambda vals: torch.tensor(vals, dtype=torch.int64, device=device)  # noqa: E731
     words = [t[0].numel() // 4 for t in sources]
-    row_count = torch.zeros(P, dtype=torch.int32, device=device)
-    stage_copy(copy_expert=to(out["copy_expert"]),
-               src_ptrs=i64([t.data_ptr() for t in sources]),
-               dst_ptrs=i64([slab[S].data_ptr() for slab in slabs]),
-               words=torch.tensor(words, dtype=torch.int32, device=device),
-               num_staging=P, max_words=max(words), num_programs=3, row_count=row_count)
-    # Each copied row counts all its items; another stream waits on exactly that.
-    assert row_count.cpu().tolist() == [stage_items_per_row(num_tensors=4, max_words=max(words))] * P
+    copy_experts(copy_row=c.copy_row, copy_expert=c.copy_expert,
+                 src_ptrs=i64([t.data_ptr() for t in sources]),
+                 dst_ptrs=i64([slab.data_ptr() for slab in slabs]),
+                 words=torch.tensor(words, dtype=torch.int32, device=device),
+                 max_words=max(words), num_programs=3)
     for slab, src in zip(slabs, sources):
-        assert not slab[:S].any()
-        for j, e in enumerate(missed[:P]):
-            assert torch.equal(slab[S + j].cpu(), src[e].cpu())
+        for row in range(R):
+            e = int(c.row_expert[row])
+            if e in admitted:
+                assert torch.equal(slab[row].cpu(), src[e].cpu())
+            else:
+                assert not slab[row].any()
 
-    miss_tab = to(out["miss_tab"])
-    expected = _reference(x, ids, weights, out["miss_tab"], w13, s13, w2, s2, 1, 0.0, True)
+    expected = _reference(x, ids, weights, miss_tab, w13, s13, w2, s2, 1, 0.0, True)
     scratch = UvaScratch.allocate(num_experts=E, max_slots=rows * k, intermediate=I, device=device)
     for eager_plan in (False, True):
         gout_part = torch.full((rows * k, H), float("nan"), device=device)
         launch_draft_miss_uva(
             hidden_states=to(x), topk_ids=to(ids), topk_weights=to(weights),
-            slot_tab=miss_tab, gout_part=gout_part, rows_per_request=1,
+            slot_tab=to(miss_tab), gout_part=gout_part, rows_per_request=1,
             host=host, scratch=scratch, activation=0, alpha=1.702, limit=0.0,
             include_first_row=True, eager_plan=eager_plan,
         )

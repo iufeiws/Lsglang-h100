@@ -39,8 +39,7 @@ def _reference(x, ids, weights, w13, s13, w2, s2, limit):
     return out
 
 
-E, H, I, K, ROWS, S, P, LIMIT = 12, 512, 256, 4, 9, 6, 2, 10.0
-
+E, H, I, K, ROWS, R, C, LIMIT = 12, 512, 256, 4, 9, 6, 2, 10.0
 
 # Registered host memory is never unregistered: a cache built on addresses a freed
 # cache had registered fails with CUDA error 712, so every cache here stays alive.
@@ -60,11 +59,11 @@ def setup(request):
         torch.randint(119, 123, (E, H, I // 32), dtype=torch.uint8),
     )
     fp8 = request.param == "fp8"
-    cache = LayerCache(layer_id=0, host_tensors=experts, num_slots=S, num_staging=P, fp8=fp8,
-                       device="cuda")
+    cache = LayerCache(layer_id=0, host_tensors=experts, num_rows=R, max_copy=C,
+                       score_decay=0.99, fp8=fp8, device="cuda")
     buffers = ForwardBuffers(num_experts=E, max_rows=ROWS, top_k=K, hidden=H,
-                             intermediate=I, num_staging=P, device="cuda")
-    params = MoeParams(swiglu_limit=torch.full((S + P,), LIMIT, device="cuda"), limit=LIMIT,
+                             intermediate=I, device="cuda")
+    params = MoeParams(swiglu_limit=torch.full((R,), LIMIT, device="cuda"), limit=LIMIT,
                        tp_size=1, tp_rank=0,
                        fc2_act_scale=torch.ones((), device="cuda") if fp8 else None)
     _alive.append((experts, cache, buffers, params))
@@ -81,12 +80,6 @@ def _close(actual, expected, fp8):
                                    atol=3e-2 * expected.abs().max().item())
 
 
-def _routes():
-    ids = torch.stack([torch.randperm(E)[:K] for _ in range(ROWS)]).int()
-    ids[::2, -1] = -1  # EP-remote routes
-    return ids, torch.randn(ROWS, H).bfloat16(), torch.rand(ROWS, K)
-
-
 def _run(cache, buffers, params, ids, x, weights, graph):
     from sglang.srt.layers.moe.gpu_expert_cache import cache_forward
 
@@ -97,68 +90,37 @@ def _run(cache, buffers, params, ids, x, weights, graph):
     return out.cpu()
 
 
+def _consistent(cache):
+    slot_of, row_expert = cache.slot_of.cpu(), cache.row_expert.cpu()
+    for row, e in enumerate(row_expert.tolist()):
+        assert e < 0 or int(slot_of[e]) == row
+    assert int((slot_of >= 0).sum()) == int((row_expert >= 0).sum())
+
+
 @pytest.mark.parametrize("graph", [False, True])
-def test_hits_staged_and_overflow_misses_match_the_reference(setup, graph):
+def test_hits_admitted_and_overflow_misses_match_the_reference(setup, graph):
+    from sglang.kernels.ops.moe.lk_verify_uva import STAT_ADMITTED, STAT_ROW_HITS
+
     experts, cache, buffers, params = setup
-    ids, x, weights = _routes()
+    # Rows 0..1 routed on every row, plus misses drawn from experts R..E-1.
+    ids = torch.stack([torch.cat([torch.tensor([0, 1]), R + torch.randperm(E - R)[:K - 2]])
+                       for _ in range(ROWS)]).int()
+    ids[::2, -1] = -1  # EP-remote routes
+    x = torch.randn(ROWS, H).bfloat16()
+    weights = torch.rand(ROWS, K)
     expected = _reference(x, ids, weights, *experts, LIMIT)
-    hist0 = cache.hist.clone()
-    slot_of = cache.slot_of.clone()
-    # Cold start holds experts 0..S-1; the other E-S > P experts are staged or overflow.
-    assert len(set(ids[(ids >= S)].tolist())) > P
-    _close(_run(cache, buffers, params, ids, x, weights, graph), expected, cache.fp8)
-    local = ids.flatten()[ids.flatten() >= 0].long()
-    assert torch.equal((cache.hist - hist0).cpu(), torch.bincount(local, minlength=E).int())
-    # With every slot unmapped all routes are misses: the paths must agree.
-    cache.slot_of.fill_(-1)
-    try:
+    # From an empty cache too, where every route misses.
+    for empty in (False, True):
+        if empty:
+            cache.slot_of.fill_(-1)
+            cache.row_expert.fill_(-1)
         _close(_run(cache, buffers, params, ids, x, weights, graph), expected, cache.fp8)
-    finally:
-        cache.slot_of.copy_(slot_of)
-
-
-def test_prefetched_experts_are_served_without_a_copy(setup):
-    """A prefetch with layer L+1's router stages its experts; the forward then copies
-    nothing for them and still matches the reference."""
-    from sglang.kernels.ops.moe.lk_verify_uva import (
-        STAT_PREFETCH_USED,
-        STAT_PREFETCHED,
-        STAT_STAGE_COPIED,
-        STAT_STAGE_KEPT,
-    )
-    from sglang.srt.layers.moe.gpu_expert_cache import (
-        PrefetchTarget,
-        _prefetch_targets,
-        prefetch_next_layer,
-        register_prefetch_target,
-    )
-
-    experts, cache, buffers, params = setup
-    cache.stage_expert.fill_(-1)  # earlier tests may have left these experts staged
-    cache.row_pending.zero_()
-    # Two non-slotted experts that a router rigged to pick them predicts for every row.
-    wanted = [S, S + 1]
-    gate = torch.zeros(E, H, device="cuda")
-    bias = torch.zeros(E, device="cuda")
-    bias[wanted] = 10.0
-    # Target key = the cache's layer id (0), so its forward is also the last prefetched one.
-    register_prefetch_target(cache.layer_id, PrefetchTarget(
-        cache=cache, gate_weight=gate, correction_bias=bias, scoring_func="sqrtsoftplus",
-        top_k=2, ep_rank=0, programs=8, max_experts=P))
-    try:
-        ids, x, weights = _routes()
-        ids[:, :2] = torch.tensor(wanted, dtype=torch.int32)
-        ids[:, 2:] = torch.randint(0, S, (ROWS, K - 2), dtype=torch.int32)
-        ids[:, 3] = torch.where(ids[:, 3] == ids[:, 2], (ids[:, 2] + 1) % S, ids[:, 3])
-        expected = _reference(x, ids, weights, *experts, LIMIT)
-        stats0 = cache.stats.clone()
-        prefetch_next_layer(cache.layer_id - 1, x.cuda(), buffers)
-        assert cache.prefetch_issued and buffers.prefetch_outstanding
-        out = _run(cache, buffers, params, ids, x, weights, graph=True)
-        assert not cache.prefetch_issued and not buffers.prefetch_outstanding
+        _consistent(cache)
+    # Repeating the forward hits what the first one admitted.
+    stats0 = cache.stats.clone()
+    _close(_run(cache, buffers, params, ids, x, weights, graph), expected, cache.fp8)
+    _consistent(cache)
+    if graph:
         delta = (cache.stats - stats0).cpu()
-        assert int(delta[STAT_PREFETCHED]) == 2 and int(delta[STAT_PREFETCH_USED]) == 2
-        assert int(delta[STAT_STAGE_KEPT]) == 2 and int(delta[STAT_STAGE_COPIED]) == 0
-        _close(out, expected, cache.fp8)
-    finally:
-        _prefetch_targets.pop(cache.layer_id)
+        assert int(delta[STAT_ROW_HITS]) > 0
+        assert int(delta[STAT_ADMITTED]) <= C

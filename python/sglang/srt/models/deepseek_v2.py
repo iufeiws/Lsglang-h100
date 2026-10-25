@@ -784,10 +784,6 @@ class DeepseekV2MoE(nn.Module):
             prefix=add_prefix("experts", prefix),
         )
 
-        if isinstance(self.experts, FusedMoE) and not self.is_hash:
-            # The GPU expert cache predicts this layer's experts one layer early.
-            self.experts.prefetch_router = (self.gate, config.scoring_func)
-
         if self.is_hash and not (is_nextn and is_deepseek_v4):
             self.topk = HashTopK(
                 topk=config.num_experts_per_tok + self.num_fused_shared_experts,

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """单层 GPU 专家缓存 forward 的耗时 (H100, 不起服务)。
 
-DSv4.1 Flash EP2 单卡形状: E=192 本地专家, H=5120, I=1152, top_k=6, 104 行显存 = 槽 + --staging。
-命中路由走 FlashInfer CUTLASS W4A16 (与常驻层同一个 kernel); miss 专家先整块拷进 staging 行再一起算,
-超出 staging 的才走 UVA kernel (侧流)。每行 --local 条路由落本 rank (EP2 实测约 3), 其余为 -1。
+DSv4.1 Flash EP2 单卡形状: E=192 本地专家, H=5120, I=1152, top_k=6, --rows-vram 行显存。
+命中路由走 FlashInfer CUTLASS (与常驻层同一个 kernel); miss 专家 (每次最多 --max-copy 个) 整块拷进
+本次未用到的低分行再一起算, 超出的才走 UVA kernel (侧流)。每行 --local 条路由落本 rank (EP2 约 3)。
+每次 replay 前把映射表恢复成初始状态, 所以重复计时测的是 miss 成本, 不是第一次之后的命中。
 --miss-experts: 另测 rows=6 时每层恰好 m 个 miss 专家的耗时 (单个 miss 的边际成本)。
 L2: 同一输入反复计时; 每次读的权重 >= 6 行 x 3 专家 x 9 MiB = 160 MiB, 远大于 H100 的 50 MiB L2,
 主机 (UVA) 读取不经过显存 L2, 所以热 L2 不影响结论。
@@ -22,7 +23,7 @@ from sglang.srt.layers.moe.gpu_expert_cache import (
     cache_forward,
 )
 
-E, H, I, K, ROWS_VRAM = 192, 5120, 1152, 6, 104
+E, H, I, K = 192, 5120, 1152, 6
 
 
 def _experts():
@@ -84,20 +85,22 @@ def main():
     ap.add_argument("--local", type=int, default=3, help="每行落本 rank 的路由数 (EP2 约 3)")
     ap.add_argument("--eager-rows", type=int, nargs="*", default=[128, 512, 2048])
     ap.add_argument("--iters", type=int, default=50)
-    ap.add_argument("--staging", type=int, default=4)
+    ap.add_argument("--rows-vram", type=int, default=108)
+    ap.add_argument("--max-copy", type=int, default=8)
     ap.add_argument("--precision", choices=["bf16", "fp8"], default="bf16",
                     help="bf16 = W4A16, fp8 = Humming W4A8 (与 LK_GPU_CACHE_PRECISION 相同)")
     ap.add_argument("--miss-experts", type=int, nargs="*", default=[0, 1, 2, 4, 6, 8])
     args = ap.parse_args()
 
-    slots = ROWS_VRAM - args.staging
+    slots = args.rows_vram
     fp8 = args.precision == "fp8"
-    cache = LayerCache(layer_id=0, host_tensors=_experts(), num_slots=slots,
-                       num_staging=args.staging, fp8=fp8, device="cuda")
+    cache = LayerCache(layer_id=0, host_tensors=_experts(), num_rows=slots,
+                       max_copy=args.max_copy, score_decay=0.99, fp8=fp8, device="cuda")
+    slot_of0, row_expert0 = cache.slot_of.clone(), cache.row_expert.clone()
     max_rows = max(args.rows + args.eager_rows)
     buffers = ForwardBuffers(num_experts=E, max_rows=max_rows, top_k=K, hidden=H,
-                             intermediate=I, num_staging=args.staging, device="cuda")
-    params = MoeParams(swiglu_limit=torch.full((ROWS_VRAM,), 10.0, device="cuda"), limit=10.0,
+                             intermediate=I, device="cuda")
+    params = MoeParams(swiglu_limit=torch.full((slots,), 10.0, device="cuda"), limit=10.0,
                        tp_size=1, tp_rank=0,
                        fc2_act_scale=torch.ones((), device="cuda") if fp8 else None)
     gen = torch.Generator().manual_seed(1)
@@ -109,9 +112,8 @@ def main():
             ids = _routes(rows, args.local, hit, gen, slots)
 
         def run():
-            # Staging rows persist across forwards; empty them so every replay pays its
-            # misses' copies instead of reusing the previous replay's.
-            cache.stage_expert.fill_(-1)
+            cache.slot_of.copy_(slot_of0)
+            cache.row_expert.copy_(row_expert0)
             return cache_forward(cache, hidden_states=x, topk_ids=ids, topk_weights=w,
                                  buffers=buffers, params=params, graph=graph)
 
@@ -127,7 +129,7 @@ def main():
         for hit in args.hit:
             ms = bench(rows, hit, graph=False)
             print(f"{'eager':>6} {rows:>5} {hit:>5.2f} {ms:>9.3f} {20 * ms:>7.2f}")
-    print(f"{'misses':>6} {'rows':>5} {'ms/layer':>9}   (graph, rows=6; > --staging 的部分走 UVA)")
+    print(f"{'misses':>6} {'rows':>5} {'ms/layer':>9}   (graph, rows=6; > --max-copy 的部分走 UVA)")
     for m in args.miss_experts:
         ms = bench(6, 1.0, graph=True, ids=_routes_with_misses(6, args.local, m, gen, slots))
         print(f"{m:>6} {6:>5} {ms:>9.3f}")

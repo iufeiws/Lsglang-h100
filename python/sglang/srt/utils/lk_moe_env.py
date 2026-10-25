@@ -178,12 +178,18 @@ def get_gpu_expert_cache_slots() -> int:
     return get_int_env_var("LK_GPU_CACHE_SLOTS", 0)
 
 
-def get_gpu_expert_cache_staging() -> int:
-    # VRAM rows of LK_GPU_CACHE_SLOTS reserved per layer for one forward's missed and
-    # prefetched experts (copied in at PCIe speed, computed with the hits); beyond
-    # them a graph forward computes misses straight over UVA. The cache log prints
-    # the distinct-miss distribution to size it. Arbitrary default; not tuned.
-    return get_int_env_var("LK_GPU_CACHE_STAGING", 4)
+def get_gpu_expert_cache_max_copy() -> int:
+    # Missed experts one forward admits into cache rows (copied in at PCIe speed and
+    # computed with the hits); further misses run over UVA, ~3x slower each. Rounded
+    # up to a power of two. The cache log prints the distinct-miss distribution.
+    # Arbitrary default (788fe82c logs: p99 of distinct misses 9-10 at k=4).
+    return get_int_env_var("LK_GPU_CACHE_MAX_COPY", 8)
+
+
+def get_gpu_expert_cache_score_decay() -> float:
+    # Per-forward decay of each expert's route count, which picks eviction victims:
+    # 0.99 is a horizon of ~100 forwards of a layer. Arbitrary default; not tuned.
+    return float(get_str_env_var("LK_GPU_CACHE_SCORE_DECAY", "0.99"))
 
 
 def get_gpu_expert_cache_precision() -> str:
@@ -194,32 +200,9 @@ def get_gpu_expert_cache_precision() -> str:
     return precision
 
 
-def get_gpu_expert_cache_prefetch_programs() -> int:
-    # >0: in graphs, layer L predicts layer L+1's experts with L+1's router on L's MoE
-    # input and copies the missing ones into L+1's staging rows on a side stream with
-    # this many persistent programs (few, to leave SMs to compute). 0 disables it.
-    # Arbitrary default; not tuned.
-    return get_int_env_var("LK_GPU_CACHE_PREFETCH_CTAS", 32)
-
-
-def get_gpu_expert_cache_prefetch_max() -> int:
-    # Most experts one prefetch copies (the most-voted predictions first). The
-    # 788fe82c run prefetched ~3 experts per on-demand copy; mispredictions only cost
-    # PCIe bandwidth now, but that bandwidth is shared. Arbitrary default; not tuned.
-    return get_int_env_var("LK_GPU_CACHE_PREFETCH_MAX", 2)
-
-
-def get_gpu_expert_cache_policy() -> dict:
-    # Residency thread knobs. At decay 0.8 / 4 swaps / gain 1.5 the H100 run swapped
-    # ~1.2 GB/s at 96% hit, contending with staging copies for PCIe; these slower
-    # defaults (score horizon ~4 s) are a guess, not tuned.
-    return dict(
-        interval_s=get_int_env_var("LK_GPU_CACHE_INTERVAL_MS", 200) / 1000,
-        budget=get_int_env_var("LK_GPU_CACHE_SWAPS", 2),
-        decay=float(get_str_env_var("LK_GPU_CACHE_DECAY", "0.95")),
-        min_gain=float(get_str_env_var("LK_GPU_CACHE_MIN_GAIN", "2.0")),
-        log_interval_s=get_int_env_var("LK_GPU_CACHE_LOG_S", 30),
-    )
+def get_gpu_expert_cache_log_interval_s() -> int:
+    # Seconds between cache counter logs; 0 disables the logging thread.
+    return get_int_env_var("LK_GPU_CACHE_LOG_S", 30)
 
 
 def get_hf_mbox() -> int:
