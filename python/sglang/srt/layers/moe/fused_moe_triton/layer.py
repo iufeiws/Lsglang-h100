@@ -86,6 +86,7 @@ from sglang.srt.runtime_context import (
     get_global_dwdp_manager,
     get_parallel,
     get_server_args,
+    get_spec,
     process_model_config,
 )
 from sglang.srt.utils import (
@@ -580,7 +581,13 @@ class FusedMoE(torch.nn.Module):
             )
                 
         self.max_running_requests = server_args.max_running_requests
-        self.speculative_num_draft_tokens = server_args.speculative_num_draft_tokens
+        # server_args still holds None here for DSPARK; the spec bag has the resolved count.
+        spec = get_spec()
+        self.speculative_num_draft_tokens = (
+            int(spec.speculative_num_draft_tokens)
+            if spec.speculative_algorithm and spec.speculative_num_draft_tokens
+            else None
+        )
 
         self.max_num_batched_tokens = max(server_args.chunked_prefill_size or 0,
                                           get_super_chunk_size())
@@ -1759,8 +1766,7 @@ class FusedMoE(torch.nn.Module):
         
         # 2. CPU resident layer: mixed path or capture mode
         # Decode: CUDA capturing or capture mode
-        if self._gpu_cache is not None and (
-                torch.cuda.is_current_stream_capturing() or get_is_capture_mode()):
+        if self._gpu_cache is not None:
             lk_result = self._gpu_cache_forward(
                 dispatch_output.hidden_states,
                 dispatch_output.topk_output.topk_weights,
@@ -2361,6 +2367,13 @@ class FusedMoE(torch.nn.Module):
         w13_weight_scale = self.w13_weight_scale_inv
         w2_weight_scale = self.w2_weight_scale_inv 
          
+        if self.gpu_cache_slots > 0:
+            self._setup_gpu_cache(
+                w13_weight, w13_weight_scale, w2_weight, w2_weight_scale)
+            if self._gpu_cache is not None:
+                # Every forward of this layer runs on the cache; lk_moe is never built.
+                return
+
         groupN, groupK = self._get_quant_params(w13_weight, w13_weight_scale, w2_weight, w2_weight_scale, 2)
 
         w13_weight_ptr = w13_weight.contiguous().data_ptr()
@@ -2394,10 +2407,7 @@ class FusedMoE(torch.nn.Module):
                 0,
                 0,
             )
-        if self.gpu_cache_slots > 0:
-            self._setup_gpu_cache(
-                w13_weight, w13_weight_scale, w2_weight, w2_weight_scale)
-        elif self.verify_uva:
+        if self.verify_uva:
             self._setup_verify_uva(
                 w13_weight, w13_weight_scale, w2_weight, w2_weight_scale)
              
@@ -2410,11 +2420,11 @@ class FusedMoE(torch.nn.Module):
         if not all(t.device.type == "cpu" and t.is_contiguous() for t in tensors):
             logger.warning(
                 "LK_GPU_CACHE_SLOTS: layer %s experts are not contiguous CPU tensors; "
-                "decode stays on lk_moe", self.layer_id)
+                "layer stays on lk_moe", self.layer_id)
             return
         if self.activation_type != 0:
             logger.warning(
-                "LK_GPU_CACHE_SLOTS: layer %s activation %d is not SiLU; decode stays "
+                "LK_GPU_CACHE_SLOTS: layer %s activation %d is not SiLU; layer stays "
                 "on lk_moe", self.layer_id, self.activation_type)
             return
         if is_lk_pool_enabled():
@@ -2444,24 +2454,56 @@ class FusedMoE(torch.nn.Module):
             cache.num_experts * slot_bytes / 2**30)
 
     def _gpu_cache_forward(self, hidden_states, topk_weights, topk_ids):
-        from sglang.kernels.ops.moe.lk_verify_uva import launch_draft_miss_uva
-        cache = self._gpu_cache
-        rows, k = topk_ids.shape
-        hidden = cache.experts.hidden
-        part = FusedMoE.gpu_cache_gout_part[: rows * k]
-        part.zero_()
-        launch_draft_miss_uva(
-            hidden_states=hidden_states.contiguous(), topk_ids=topk_ids,
-            topk_weights=topk_weights, slot_tab=None, gout_part=part,
-            rows_per_request=1, host=cache.experts,
-            scratch=FusedMoE.gpu_cache_scratch, activation=self.activation_type,
-            alpha=1.702 if self.swiglu_alpha is None else float(self.swiglu_alpha),
-            limit=0.0 if self.swiglu_limit is None else float(self.swiglu_limit),
-            include_first_row=True, hist=cache.hist)
-        out = part.view(rows, k, hidden).sum(dim=1)
+        if torch.cuda.is_current_stream_capturing() or get_is_capture_mode():
+            out = self._gpu_cache_graph_forward(
+                hidden_states.contiguous(), topk_weights, topk_ids)
+        else:
+            out = self._gpu_cache_eager_forward(
+                hidden_states.contiguous(), topk_weights, topk_ids)
         if self.check_nan_in_output:
             torch.nan_to_num(out, nan=0.0, out=out)
         return out.to(hidden_states.dtype)
+
+    def _gpu_cache_launch(self, *, hidden_states, topk_weights, topk_ids, gout_part,
+                          eager_plan):
+        from sglang.kernels.ops.moe.lk_verify_uva import launch_draft_miss_uva
+        launch_draft_miss_uva(
+            hidden_states=hidden_states, topk_ids=topk_ids,
+            topk_weights=topk_weights, slot_tab=None, gout_part=gout_part,
+            rows_per_request=1, host=self._gpu_cache.experts,
+            scratch=FusedMoE.gpu_cache_scratch, activation=self.activation_type,
+            alpha=1.702 if self.swiglu_alpha is None else float(self.swiglu_alpha),
+            limit=0.0 if self.swiglu_limit is None else float(self.swiglu_limit),
+            include_first_row=True, hist=self._gpu_cache.hist, eager_plan=eager_plan)
+
+    def _gpu_cache_graph_forward(self, hidden_states, topk_weights, topk_ids):
+        rows, k = topk_ids.shape
+        part = FusedMoE.gpu_cache_gout_part[: rows * k]
+        part.zero_()
+        self._gpu_cache_launch(hidden_states=hidden_states, topk_weights=topk_weights,
+                               topk_ids=topk_ids, gout_part=part, eager_plan=False)
+        return part.view(rows, k, -1).sum(dim=1)
+
+    def _gpu_cache_eager_forward(self, hidden_states, topk_weights, topk_ids):
+        """Any batch outside a graph (prefill tails of late layers, oversized decode)."""
+        from sglang.srt.layers.moe.gpu_expert_cache import note_eager_stream
+        note_eager_stream(torch.cuda.current_stream())
+        rows, k = topk_ids.shape
+        hidden = self._gpu_cache.experts.hidden
+        out = torch.empty((rows, hidden), dtype=torch.float32, device=hidden_states.device)
+        # Bounds the transient fp32 scratch to ~0.3 GiB (gout_part + mid) per chunk.
+        chunk = 2048
+        for start in range(0, rows, chunk):
+            stop = min(rows, start + chunk)
+            part = torch.zeros(((stop - start) * k, hidden), dtype=torch.float32,
+                               device=hidden_states.device)
+            self._gpu_cache_launch(
+                hidden_states=hidden_states[start:stop],
+                topk_weights=topk_weights[start:stop].to(torch.float32).contiguous(),
+                topk_ids=topk_ids[start:stop].to(torch.int32).contiguous(),
+                gout_part=part, eager_plan=True)
+            torch.sum(part.view(stop - start, k, hidden), dim=1, out=out[start:stop])
+        return out
 
     def _setup_verify_uva(self, w13, s13, w2, s2):
         from sglang.kernels.ops.moe.lk_verify_uva import register_host_experts
@@ -2546,7 +2588,8 @@ class FusedMoE(torch.nn.Module):
                 requires_grad=False
             ).contiguous()
 
-        self._init_pool()
+        if self._gpu_cache is None:
+            self._init_pool()
 
     def _init_pool(self):
         if not (self.is_pool_layer or self.is_gpu_prefill_layer):

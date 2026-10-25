@@ -15,7 +15,10 @@ read either side at any moment.
 
 The thread issues CUDA calls only under ``park()``, which graph capture and graph
 replay launch also hold (the same rule as the lk_moe pump), and starts swapping only
-after the first replay, i.e. once every capture and its warmups are done.
+after the first replay, i.e. once every capture and its warmups are done. Eager
+forwards (prefill tails of late layers) read the same table; their streams join the
+fence, and a launch racing an unpublish either precedes the fence's event record or
+starts after the table push has landed.
 """
 
 from __future__ import annotations
@@ -31,7 +34,9 @@ import torch
 logger = logging.getLogger(__name__)
 
 _PARK_LOCK = threading.Lock()
+# Streams that launch cache reads (graph replays and eager forwards); fenced before a slot is reused.
 _replay_streams: list[torch.cuda.Stream] = []
+_first_replay = threading.Event()
 
 
 @contextmanager
@@ -45,6 +50,15 @@ def note_replay(stream: torch.cuda.Stream) -> None:
     """Record a graph-replay stream; call inside ``park()`` right before the launch."""
     if not any(s == stream for s in _replay_streams):
         _replay_streams.append(stream)
+    _first_replay.set()
+
+
+def note_eager_stream(stream: torch.cuda.Stream) -> None:
+    """Record a stream that runs cache reads outside a graph; no park() needed."""
+    if not any(s == stream for s in _replay_streams):
+        with _PARK_LOCK:
+            if not any(s == stream for s in _replay_streams):
+                _replay_streams.append(stream)
 
 
 def plan_swaps(
@@ -240,7 +254,7 @@ class CacheManager:
         last_log = time.time()
         while True:
             time.sleep(self._interval_s)
-            if not _replay_streams:
+            if not _first_replay.is_set():
                 continue
             try:
                 self._round(stats)

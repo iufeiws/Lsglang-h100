@@ -14,6 +14,7 @@ Experts may live anywhere: every expert has its own address, so per-NUMA placeme
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 import msgspec
@@ -21,12 +22,19 @@ import torch
 import triton
 import triton.language as tl
 
-# Activation shared with the LK pool GEMV and the LK CPU kernels, so draft rows
-# computed here use the same SwiGLU clamp semantics as the other routes.
-from lk_moe._pool_kernel_common import _act
-
 # Row tile of the expert-grouped GEMMs; tl.dot needs M >= 16.
 _BM = 16
+
+
+class GemmConfig(msgspec.Struct, frozen=True):
+    bn: int
+    bk: int
+    num_warps: int
+
+
+# No register spills under ptxas sm_90a at BM 16 and 64 (Triton 3.8); not timed on H100 yet.
+GATE_UP_CONFIG = GemmConfig(bn=32, bk=64, num_warps=8)
+DOWN_CONFIG = GemmConfig(bn=64, bk=64, num_warps=8)
 
 
 class HostExperts(msgspec.Struct, frozen=True):
@@ -130,19 +138,31 @@ def matches_host_experts(host: HostExperts, *, w13, s13, w2, s2, experts) -> boo
 
 
 @triton.jit
-def _e2m1(code):
-    """e2m1 nibble -> fp32: magnitudes 0, 0.5, 1, 1.5, 2, 3, 4, 6; bit 3 is the sign."""
-    mag = code & 7
-    val = tl.where(mag == 7, 6.0, tl.where(mag == 6, 4.0, tl.where(mag == 5, 3.0, 0.5 * mag.to(tl.float32))))
-    return tl.where((code & 8) != 0, -val, val)
+def _e2m1_bf16(code):
+    """e2m1 nibble -> bf16 (0, 0.5, 1, 1.5, 2, 3, 4, 6, signed by bit 3), built from bits."""
+    c = code.to(tl.int32)
+    exponent = (c >> 1) & 3
+    mantissa = c & 1
+    bits = tl.where(exponent == 0, mantissa * 0x3F00, ((exponent + 126) << 7) | (mantissa << 6))
+    bits = bits | ((c & 8) << 12)
+    return bits.to(tl.uint16).to(tl.bfloat16, bitcast=True)
 
 
 @triton.jit
-def _e8m0(code):
-    """ue8m0 scale byte -> fp32 2^(code-127); code 0 keeps 2^-127 instead of flushing."""
-    c = code.to(tl.uint32)
-    v = (c << 23).to(tl.float32, bitcast=True)
-    return tl.where(c == 0, 5.8774718e-39, v)
+def _e8m0_bf16(code):
+    """ue8m0 scale byte -> bf16 2^(code-127); code 0 keeps 2^-127 (a bf16 subnormal)."""
+    c = code.to(tl.int32)
+    bits = tl.where(c == 0, 0x0040, c << 7)
+    return bits.to(tl.uint16).to(tl.bfloat16, bitcast=True)
+
+
+@triton.jit
+def _clamped_swiglu(gate, up, LIMIT: tl.constexpr):
+    """silu(min(gate, L)) * clamp(up, -L, L): DSv4 semantics of expert_pack._clamped_swiglu."""
+    if LIMIT > 0:
+        gate = tl.minimum(gate, LIMIT)
+        up = tl.minimum(tl.maximum(up, -LIMIT), LIMIT)
+    return up * (gate / (1 + tl.exp(-gate)))
 
 
 @triton.jit
@@ -212,17 +232,43 @@ def _plan_kernel(
 
 @triton.jit
 def _mxfp4_tile(w_ptr, s_ptr, rows, k0, K: tl.constexpr, BN: tl.constexpr, BK: tl.constexpr):
-    """[BN, BK/2] fp32 weights of k columns k0+2j (lo) and k0+2j+1 (hi), scales applied."""
+    """[BN, BK/2] bf16 weights of k columns k0+2j (lo) and k0+2j+1 (hi), scales applied.
+
+    Exact: an e2m1 value times a power of two needs at most 2 significant bits.
+    """
     j = tl.arange(0, BK // 2)
     packed = tl.load(w_ptr + rows[:, None] * (K // 2) + (k0 // 2 + j)[None, :])
     g = tl.arange(0, BK // 32)
-    scale = _e8m0(tl.load(s_ptr + rows[:, None] * (K // 32) + (k0 // 32 + g)[None, :]))
+    scale = _e8m0_bf16(tl.load(s_ptr + rows[:, None] * (K // 32) + (k0 // 32 + g)[None, :]))
     scale = tl.reshape(
         tl.broadcast_to(scale[:, :, None], (BN, BK // 32, 16)), (BN, BK // 2)
-    )
-    lo = _e2m1(packed & 0xF) * scale
-    hi = _e2m1((packed >> 4) & 0xF) * scale
+    ).to(tl.float32)
+    lo = (_e2m1_bf16(packed & 0xF).to(tl.float32) * scale).to(tl.bfloat16)
+    hi = (_e2m1_bf16((packed >> 4) & 0xF).to(tl.float32) * scale).to(tl.bfloat16)
     return lo, hi
+
+
+@triton.jit
+def _dot_bf16(a, b_t, acc, TC: tl.constexpr):
+    """acc += a @ b_t for bf16 operands with FP32 accumulation; TC=False is the FP32 fallback."""
+    if TC:
+        acc = tl.dot(a, b_t, acc)
+    else:
+        acc = tl.dot(a.to(tl.float32), b_t.to(tl.float32), acc, input_precision="ieee")
+    return acc
+
+
+@triton.jit
+def _dot_f32_split(a, b_t, acc, TC: tl.constexpr):
+    """acc += a @ b_t for FP32 ``a``: split into bf16 high and low parts (~16 mantissa bits)."""
+    if TC:
+        a_hi = a.to(tl.bfloat16)
+        a_lo = (a - a_hi.to(tl.float32)).to(tl.bfloat16)
+        acc = tl.dot(a_hi, b_t, acc)
+        acc = tl.dot(a_lo, b_t, acc)
+    else:
+        acc = tl.dot(a, b_t.to(tl.float32), acc, input_precision="ieee")
+    return acc
 
 
 @triton.jit
@@ -238,12 +284,11 @@ def _gate_up_kernel(
     top_k,
     H: tl.constexpr,
     I: tl.constexpr,
-    ACTIVATION: tl.constexpr,
-    ALPHA: tl.constexpr,
     LIMIT: tl.constexpr,
     BM: tl.constexpr,
     BN: tl.constexpr,
     BK: tl.constexpr,
+    TC: tl.constexpr,
 ):
     tile = tl.program_id(0)
     count = tl.load(tile_count_ptr + tile)
@@ -265,15 +310,15 @@ def _gate_up_kernel(
     acc_up = tl.zeros((BM, BN), dtype=tl.float32)
     for k0 in range(0, H, BK):
         k_even = k0 + 2 * j
-        x_even = tl.load(x_row[:, None] + k_even[None, :], mask=live[:, None], other=0.0).to(tl.float32)
-        x_odd = tl.load(x_row[:, None] + k_even[None, :] + 1, mask=live[:, None], other=0.0).to(tl.float32)
+        x_even = tl.load(x_row[:, None] + k_even[None, :], mask=live[:, None], other=0.0).to(tl.bfloat16)
+        x_odd = tl.load(x_row[:, None] + k_even[None, :] + 1, mask=live[:, None], other=0.0).to(tl.bfloat16)
         g_lo, g_hi = _mxfp4_tile(w, s, gate_rows, k0, H, BN, BK)
         u_lo, u_hi = _mxfp4_tile(w, s, up_rows, k0, H, BN, BK)
-        acc_gate = tl.dot(x_even, tl.trans(g_lo), acc_gate, input_precision="ieee")
-        acc_gate = tl.dot(x_odd, tl.trans(g_hi), acc_gate, input_precision="ieee")
-        acc_up = tl.dot(x_even, tl.trans(u_lo), acc_up, input_precision="ieee")
-        acc_up = tl.dot(x_odd, tl.trans(u_hi), acc_up, input_precision="ieee")
-    act = _act(acc_gate, acc_up, ACTIVATION, ALPHA, LIMIT)
+        acc_gate = _dot_bf16(x_even, tl.trans(g_lo), acc_gate, TC)
+        acc_gate = _dot_bf16(x_odd, tl.trans(g_hi), acc_gate, TC)
+        acc_up = _dot_bf16(x_even, tl.trans(u_lo), acc_up, TC)
+        acc_up = _dot_bf16(x_odd, tl.trans(u_hi), acc_up, TC)
+    act = _clamped_swiglu(acc_gate, acc_up, LIMIT)
     tl.store(mid_ptr + slot[:, None] * I + n[None, :], act, mask=live[:, None])
 
 
@@ -293,6 +338,7 @@ def _down_kernel(
     BM: tl.constexpr,
     BN: tl.constexpr,
     BK: tl.constexpr,
+    TC: tl.constexpr,
 ):
     tile = tl.program_id(0)
     count = tl.load(tile_count_ptr + tile)
@@ -314,8 +360,8 @@ def _down_kernel(
         a_even = tl.load(mid_ptr + slot[:, None] * I + k_even[None, :], mask=live[:, None], other=0.0)
         a_odd = tl.load(mid_ptr + slot[:, None] * I + k_even[None, :] + 1, mask=live[:, None], other=0.0)
         d_lo, d_hi = _mxfp4_tile(w, s, rows, k0, I, BN, BK)
-        acc = tl.dot(a_even, tl.trans(d_lo), acc, input_precision="ieee")
-        acc = tl.dot(a_odd, tl.trans(d_hi), acc, input_precision="ieee")
+        acc = _dot_f32_split(a_even, tl.trans(d_lo), acc, TC)
+        acc = _dot_f32_split(a_odd, tl.trans(d_hi), acc, TC)
     route_w = tl.load(route_weights_ptr + slot, mask=live, other=0.0)
     tl.store(
         gout_part_ptr + slot[:, None] * H + n[None, :],
@@ -324,12 +370,82 @@ def _down_kernel(
     )
 
 
-def _tile_k(k: int) -> int:
-    # 128 keeps the fp32 weight tiles of the gate/up kernel in registers.
-    for bk in (128, 64):
-        if k % bk == 0:
-            return bk
-    raise ValueError(f"LK verify UVA: reduction dim {k} is not a multiple of 64")
+def _use_tensor_cores() -> bool:
+    # The Triton CPU interpreter mis-emulates bf16 tl.dot; it takes the FP32 path.
+    return os.environ.get("TRITON_INTERPRET") != "1"
+
+
+class _Tiles(msgspec.Struct, frozen=True):
+    order: torch.Tensor
+    tile_expert: torch.Tensor
+    tile_start: torch.Tensor
+    tile_count: torch.Tensor
+    mid: torch.Tensor
+    n_tiles: int
+    bm: int
+
+
+def _plan_graph(*, topk_ids, slot_tab, rows_per_request, include_first_row, hist,
+                scratch, num_experts) -> _Tiles:
+    """Single-program plan into fixed scratch buffers: CUDA-graph capturable."""
+    rows, top_k = topk_ids.shape
+    n_slots = rows * top_k
+    computed_rows = rows if include_first_row else rows - rows // rows_per_request
+    n_tiles_cap = max(1, computed_rows * top_k)
+    assert n_slots <= scratch.order.numel() and num_experts <= scratch.counts.numel()
+    _plan_kernel[(1,)](
+        topk_ids,
+        # Unused placeholders keep the signature fixed when a feature is off.
+        slot_tab if slot_tab is not None else scratch.order,
+        scratch.counts,
+        scratch.cursor,
+        scratch.offsets,
+        scratch.order,
+        scratch.tile_expert,
+        scratch.tile_start,
+        scratch.tile_count,
+        hist if hist is not None else scratch.counts,
+        n_slots,
+        top_k,
+        rows_per_request,
+        num_experts,
+        n_tiles_cap,
+        HAS_SLOT_TAB=slot_tab is not None,
+        HAS_HIST=hist is not None,
+        BM=_BM,
+        BLOCK_S=triton.next_power_of_2(n_slots),
+        BLOCK_E=triton.next_power_of_2(num_experts),
+        BLOCK_T=triton.next_power_of_2(n_tiles_cap),
+        # An expert appears at most once per row.
+        MAX_T=triton.cdiv(max(1, computed_rows), _BM),
+        INCLUDE_FIRST_ROW=include_first_row,
+    )
+    return _Tiles(scratch.order, scratch.tile_expert, scratch.tile_start,
+                  scratch.tile_count, scratch.mid, n_tiles_cap, _BM)
+
+
+def _plan_eager(*, topk_ids, hist, num_experts, intermediate) -> _Tiles:
+    """Host-sized plan for any batch (e.g. prefill tails); not graph capturable."""
+    bm = 64
+    ids = topk_ids.reshape(-1)
+    slots = torch.nonzero(ids >= 0).squeeze(1)
+    experts = ids[slots].long()
+    experts, perm = torch.sort(experts, stable=True)
+    order = slots[perm].to(torch.int32)
+    counts = torch.bincount(experts, minlength=num_experts)
+    if hist is not None:
+        hist.add_(counts.to(hist.dtype))
+    n_tiles_per = (counts + bm - 1) // bm
+    tile_expert = torch.repeat_interleave(
+        torch.arange(num_experts, device=ids.device), n_tiles_per)
+    first_tile = torch.cumsum(n_tiles_per, 0) - n_tiles_per
+    within = torch.arange(tile_expert.numel(), device=ids.device) - first_tile[tile_expert]
+    offsets = torch.cumsum(counts, 0) - counts
+    tile_start = offsets[tile_expert] + within * bm
+    tile_count = torch.clamp(counts[tile_expert] - within * bm, max=bm)
+    mid = torch.empty((ids.numel(), intermediate), dtype=torch.float32, device=ids.device)
+    return _Tiles(order, tile_expert.to(torch.int32), tile_start.to(torch.int32),
+                  tile_count.to(torch.int32), mid, tile_expert.numel(), bm)
 
 
 def launch_draft_miss_uva(
@@ -347,87 +463,73 @@ def launch_draft_miss_uva(
     limit: float,
     include_first_row: bool = False,
     hist: Optional[torch.Tensor] = None,
+    eager_plan: bool = False,
 ) -> None:
     """Write route-weighted outputs of draft-row pool misses into ``gout_part[slot]``.
 
     ``slot_tab`` None computes every selected route (no LK pool); ``include_first_row``
     also computes row 0 of each request (every row of a plain decode batch with
     ``rows_per_request=1``); ``hist`` [E] int32 accumulates the computed routes per
-    expert. Enqueued on the current stream. ``gout_part`` rows of other slots are
-    untouched, so the caller zeroes them and the pool GEMV fills the resident ones.
+    expert. ``eager_plan`` plans on the host for batches larger than ``scratch``
+    (every row, no slot table; not capturable). Enqueued on the current stream.
+    ``gout_part`` rows of other slots are untouched, so the caller zeroes them and
+    the pool GEMV fills the resident ones.
     """
+    # Only SiLU (LK activation 0) is implemented; ``alpha`` belongs to the other kinds.
+    assert activation == 0, f"LK verify UVA: activation {activation} is not SiLU"
+    del alpha
     rows, top_k = topk_ids.shape
     H, I, E = host.hidden, host.intermediate, host.num_experts
     assert hidden_states.shape == (rows, H) and hidden_states.is_contiguous()
     assert topk_ids.is_contiguous() and topk_weights.is_contiguous()
     assert topk_weights.dtype == torch.float32
-    n_slots = rows * top_k
-    computed_rows = rows if include_first_row else rows - rows // rows_per_request
-    n_tiles_cap = max(1, computed_rows * top_k)
-    assert n_slots <= scratch.order.numel() and E <= scratch.counts.numel()
-    _plan_kernel[(1,)](
-        topk_ids,
-        # Unused placeholders keep the signature fixed when a feature is off.
-        slot_tab if slot_tab is not None else scratch.order,
-        scratch.counts,
-        scratch.cursor,
-        scratch.offsets,
-        scratch.order,
-        scratch.tile_expert,
-        scratch.tile_start,
-        scratch.tile_count,
-        hist if hist is not None else scratch.counts,
-        n_slots,
-        top_k,
-        rows_per_request,
-        E,
-        n_tiles_cap,
-        HAS_SLOT_TAB=slot_tab is not None,
-        HAS_HIST=hist is not None,
-        BM=_BM,
-        BLOCK_S=triton.next_power_of_2(n_slots),
-        BLOCK_E=triton.next_power_of_2(E),
-        BLOCK_T=triton.next_power_of_2(n_tiles_cap),
-        # An expert appears at most once per row.
-        MAX_T=triton.cdiv(max(1, computed_rows), _BM),
-        INCLUDE_FIRST_ROW=include_first_row,
-    )
-    gate_up_bn = 32
-    _gate_up_kernel[(n_tiles_cap, triton.cdiv(I, gate_up_bn))](
+    if eager_plan:
+        assert slot_tab is None and include_first_row
+        tiles = _plan_eager(topk_ids=topk_ids, hist=hist, num_experts=E, intermediate=I)
+        if tiles.n_tiles == 0:
+            return
+    else:
+        tiles = _plan_graph(
+            topk_ids=topk_ids, slot_tab=slot_tab, rows_per_request=rows_per_request,
+            include_first_row=include_first_row, hist=hist, scratch=scratch,
+            num_experts=E)
+    tc = _use_tensor_cores()
+    gu, dn = GATE_UP_CONFIG, DOWN_CONFIG
+    assert I % gu.bn == 0 and H % gu.bk == 0 and H % dn.bn == 0 and I % dn.bk == 0
+    _gate_up_kernel[(tiles.n_tiles, I // gu.bn)](
         hidden_states,
-        scratch.order,
-        scratch.tile_expert,
-        scratch.tile_start,
-        scratch.tile_count,
+        tiles.order,
+        tiles.tile_expert,
+        tiles.tile_start,
+        tiles.tile_count,
         host.w13_ptrs,
         host.s13_ptrs,
-        scratch.mid,
+        tiles.mid,
         top_k,
         H=H,
         I=I,
-        ACTIVATION=activation,
-        ALPHA=alpha,
         LIMIT=limit,
-        BM=_BM,
-        BN=gate_up_bn,
-        BK=_tile_k(H),
-        num_warps=4,
+        BM=tiles.bm,
+        BN=gu.bn,
+        BK=gu.bk,
+        TC=tc,
+        num_warps=gu.num_warps,
     )
-    down_bn = 64
-    _down_kernel[(n_tiles_cap, triton.cdiv(H, down_bn))](
-        scratch.order,
-        scratch.tile_expert,
-        scratch.tile_start,
-        scratch.tile_count,
+    _down_kernel[(tiles.n_tiles, H // dn.bn)](
+        tiles.order,
+        tiles.tile_expert,
+        tiles.tile_start,
+        tiles.tile_count,
         topk_weights,
         host.w2_ptrs,
         host.s2_ptrs,
-        scratch.mid,
+        tiles.mid,
         gout_part,
         H=H,
         I=I,
-        BM=_BM,
-        BN=down_bn,
-        BK=_tile_k(I),
-        num_warps=4,
+        BM=tiles.bm,
+        BN=dn.bn,
+        BK=dn.bk,
+        TC=tc,
+        num_warps=dn.num_warps,
     )

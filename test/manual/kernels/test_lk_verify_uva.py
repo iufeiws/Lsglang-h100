@@ -4,31 +4,10 @@ Runs on CUDA (host tensors pinned) or on CPU with TRITON_INTERPRET=1:
   TRITON_INTERPRET=1 python -m pytest -q test/manual/kernels/test_lk_verify_uva.py
 """
 
-import sys
-import types
-
 import pytest
 import torch
-import triton
-import triton.language as tl
 
-try:
-    import lk_moe._pool_kernel_common  # noqa: F401
-except ImportError:
-    # Same SwiGLU (activation 0) as the LK pool kernels, for hosts without the wheel.
-    @triton.jit
-    def _act(gate, up, ACTIVATION: tl.constexpr, ALPHA: tl.constexpr, LIMIT: tl.constexpr):
-        if LIMIT > 0:
-            gate = tl.minimum(tl.maximum(gate, -LIMIT), LIMIT)
-            up = tl.minimum(tl.maximum(up, -LIMIT), LIMIT)
-        return up * (gate / (1 + tl.exp(-gate)))
-
-    common = types.ModuleType("lk_moe._pool_kernel_common")
-    common._act = _act
-    sys.modules.setdefault("lk_moe", types.ModuleType("lk_moe"))
-    sys.modules["lk_moe._pool_kernel_common"] = common
-
-from sglang.kernels.ops.moe.lk_verify_uva import (  # noqa: E402
+from sglang.kernels.ops.moe.lk_verify_uva import (
     HostExperts,
     UvaScratch,
     launch_draft_miss_uva,
@@ -60,7 +39,7 @@ def _reference(x, ids, weights, slot_tab, w13, s13, w2, s2, rows_per_request, li
         h = w_up @ x[row].float()
         gate, up = h[:I], h[I:]
         if limit > 0:
-            gate, up = gate.clamp(-limit, limit), up.clamp(-limit, limit)
+            gate, up = gate.clamp(max=limit), up.clamp(-limit, limit)
         act = up * gate * torch.sigmoid(gate)
         out[slot] = weights.flatten()[slot] * (_dequant(w2[e], s2[e]) @ act)
     return out
@@ -101,7 +80,8 @@ def test_self_check_rejects_wrong_addresses():
 
 
 @pytest.mark.parametrize("requests", [1, 3])
-@pytest.mark.parametrize("limit", [0.0, 7.0])
+# 0.5 is inside the gate range, so the one-sided gate clamp is exercised.
+@pytest.mark.parametrize("limit", [0.0, 0.5])
 @pytest.mark.parametrize("include_first", [False, True])
 def test_draft_miss_matches_reference(requests, limit, include_first):
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -176,3 +156,36 @@ def test_cache_mode_computes_every_route_and_counts_them():
     torch.testing.assert_close(gout_part.cpu(), expected, rtol=2e-4, atol=1e-3)
     local = ids.flatten()[ids.flatten() >= 0].long()
     assert torch.equal(hist.cpu(), 2 * torch.bincount(local, minlength=E).int())
+
+
+def test_eager_plan_splits_hot_experts_across_tiles():
+    """Host-planned batches past one tile per expert (prefill tails) must cover every route."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    torch.manual_seed(11)
+    E, H, I, k, rows = 6, 128, 64, 2, 150
+    w13 = torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8)
+    s13 = torch.randint(118, 124, (E, 2 * I, H // 32), dtype=torch.uint8)
+    w2 = torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8)
+    s2 = torch.randint(118, 124, (E, H, I // 32), dtype=torch.uint8)
+    host, _storage = _scattered_host(w13, s13, w2, s2, torch.randperm(E), device)
+    # Expert 2 takes every row (3 tiles of 64); expert 4 is never routed.
+    ids = torch.stack([torch.tensor([2, int(torch.tensor([0, 1, 3, 5])[r % 4])]) for r in range(rows)]).int()
+    ids[7, 1] = -1
+    x = torch.randn(rows, H).bfloat16()
+    weights = torch.rand(rows, k)
+    no_pool = torch.full((rows * k,), -1, dtype=torch.int32)
+    expected = _reference(x, ids, weights, no_pool, w13, s13, w2, s2, 1, 0.0, True)
+
+    to = lambda t: t.to(device)  # noqa: E731
+    scratch = UvaScratch.allocate(num_experts=E, max_slots=1, intermediate=I, device=device)
+    hist = torch.zeros(E, dtype=torch.int32, device=device)
+    gout_part = torch.zeros((rows * k, H), device=device)
+    launch_draft_miss_uva(
+        hidden_states=to(x), topk_ids=to(ids), topk_weights=to(weights),
+        slot_tab=None, gout_part=gout_part, rows_per_request=1,
+        host=host, scratch=scratch, activation=0, alpha=1.702, limit=0.0,
+        include_first_row=True, hist=hist, eager_plan=True,
+    )
+    torch.testing.assert_close(gout_part.cpu(), expected, rtol=2e-4, atol=1e-3)
+    local = ids.flatten()[ids.flatten() >= 0].long()
+    assert torch.equal(hist.cpu(), torch.bincount(local, minlength=E).int())
