@@ -1,0 +1,55 @@
+{
+  "started": "2026-10-26T06:28:08+08:00",
+  "endpoint": "http://127.0.0.1:18010/v1/chat/completions",
+  "image": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/probe_image.png",
+  "image_bytes": 875,
+  "request": {
+    "model": "DeepSeek-V4.1-Flash-1017",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "<data:image/png;base64,1168 chars>"
+            }
+          },
+          {
+            "type": "text",
+            "text": "这张图片里有什么? 请简短描述。"
+          }
+        ]
+      }
+    ],
+    "max_tokens": 128,
+    "temperature": 0,
+    "stream": false
+  },
+  "http_status": 200,
+  "elapsed_s": 0.912,
+  "response_text": "{\"id\":\"064d24b9a51e4c28a3a4c8d600c87531\",\"object\":\"chat.completion\",\"created\":1792967288,\"model\":\"DeepSeek-V4.1-Flash-1017\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"这张图片展示了一个**停止（Stop）按钮**的图标。\\n\\n具体描述如下：\\n*   **形状**：一个圆形的图标。\\n*   **颜色**：外圈是深色（黑色或深灰色）的细边框，内部填充为红褐色（或砖红色）。\\n*   **中心**：正中间有一个白色的正方形。\\n\\n这种设计通常用于用户界面（UI）中，代表“停止”或“暂停”功能。\",\"reasoning_content\":null},\"logprobs\":null,\"finish_reason\":\"stop\",\"matched_stop\":1}],\"usage\":{\"prompt_tokens\":199,\"total_tokens\":293,\"completion_tokens\":94,\"prompt_tokens_details\":{\"cached_tokens\":0,\"image_tokens\":184},\"reasoning_tokens\":0},\"metadata\":{\"weight_version\":\"default\",\"weight_versions\":[{\"version\":\"default\",\"start\":0,\"end\":94}]}}",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "这张图片展示了一个**停止（Stop）按钮**的图标。\n\n具体描述如下：\n*   **形状**：一个圆形的图标。\n*   **颜色**：外圈是深色（黑色或深灰色）的细边框，内部填充为红褐色（或砖红色）。\n*   **中心**：正中间有一个白色的正方形。\n\n这种设计通常用于用户界面（UI）中，代表“停止”或“暂停”功能。",
+        "reasoning_content": null
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "matched_stop": 1
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 199,
+    "total_tokens": 293,
+    "completion_tokens": 94,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "image_tokens": 184
+    },
+    "reasoning_tokens": 0
+  }
+}

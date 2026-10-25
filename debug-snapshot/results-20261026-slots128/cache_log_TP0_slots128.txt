@@ -1,0 +1,41 @@
+[2026-10-26 06:13:48 TP0 EP0] [gpu-expert-cache] 19 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:14:19 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:14:50 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+DeepGEMM warmup:  71%|███████   | 11664/16384 [00:11<00:09, 498.27it/s]DeepGEMM warmup:  71%|███████▏  | 11714/16384 [00:11<00:09, 497.45it/s][2026-10-26 06:15:20 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:15:50 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:16:20 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:16:50 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:17:20 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:17:50 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:18:20 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:18:50 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:19:20 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:19:50 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:21:01 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:21:42 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:22:12 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=142184 row-hit=100.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:22:12 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=0 p99=0 p99.9=0; > max copy(8): 0.00% of 960; histogram [(0, 960)]
+[2026-10-26 06:22:42 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:23:12 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:23:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 31s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:24:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=1418 row-hit=86.1% | missed experts: admitted=159 (48 MiB/s) overflow(UVA)=0
+[2026-10-26 06:24:14 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=2 p90=4 p99=7 p99.9=7; > max copy(8): 0.00% of 80; histogram [(0, 11), (1, 28), (2, 19), (3, 9), (4, 5), (5, 3), (6, 4), (7, 1)]
+[2026-10-26 06:24:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=350 row-hit=100.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:24:44 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=0 p99=0 p99.9=0; > max copy(8): 0.00% of 20; histogram [(0, 20)]
+[2026-10-26 06:25:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=14454 row-hit=97.3% | missed experts: admitted=327 (98 MiB/s) overflow(UVA)=0
+[2026-10-26 06:25:14 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=3 p99.9=4; > max copy(8): 0.00% of 780; histogram [(0, 514), (1, 214), (2, 44), (3, 7), (4, 1)]
+[2026-10-26 06:25:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=137920 row-hit=99.1% | missed experts: admitted=1088 (325 MiB/s) overflow(UVA)=0
+[2026-10-26 06:25:44 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=2 p99.9=3; > max copy(8): 0.00% of 7560; histogram [(0, 6586), (1, 874), (2, 87), (3, 12), (4, 1)]
+[2026-10-26 06:26:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:26:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:27:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=104480 row-hit=99.5% | missed experts: admitted=473 (141 MiB/s) overflow(UVA)=0
+[2026-10-26 06:27:14 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=2 p99.9=3; > max copy(8): 0.00% of 2261; histogram [(0, 1841), (1, 370), (2, 47), (3, 3)]
+[2026-10-26 06:27:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=259982 row-hit=99.7% | missed experts: admitted=811 (242 MiB/s) overflow(UVA)=0
+[2026-10-26 06:27:44 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=3 p99.9=5; > max copy(8): 0.00% of 1839; histogram [(0, 1235), (1, 447), (2, 121), (3, 25), (4, 9), (5, 1), (6, 1)]
+[2026-10-26 06:28:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=468037 row-hit=99.7% | missed experts: admitted=1241 (371 MiB/s) overflow(UVA)=0
+[2026-10-26 06:28:14 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=2 p99=4 p99.9=6; > max copy(8): 0.00% of 2460; histogram [(0, 1620), (1, 573), (2, 178), (3, 60), (4, 18), (5, 6), (6, 5)]
+[2026-10-26 06:28:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 06:29:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=66789 row-hit=99.7% | missed experts: admitted=198 (59 MiB/s) overflow(UVA)=0
+[2026-10-26 06:29:14 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=0 p99=1 p99.9=3; > max copy(8): 0.00% of 2220; histogram [(0, 2047), (1, 154), (2, 13), (3, 6)]
+[2026-10-26 06:29:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=266780 row-hit=99.8% | missed experts: admitted=621 (186 MiB/s) overflow(UVA)=0
+[2026-10-26 06:29:44 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=3 p99.9=4; > max copy(8): 0.00% of 2000; histogram [(0, 1514), (1, 381), (2, 79), (3, 22), (4, 4)]

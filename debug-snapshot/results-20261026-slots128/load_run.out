@@ -1,0 +1,100 @@
+### 2026-10-26_06:26:44 并发 k=2, ~16k token/路, mt=256
+    "n": 2
+  },
+  "decode_tok_s": {
+    "p50": 53.159,
+    "p10": 50.819,
+    "p90": 55.498,
+    "n": 2
+  },
+  "ms_step": {
+    "p50": 18.869,
+    "p10": 18.038,
+    "p90": 19.699,
+    "n": 2
+  },
+  "completion_tokens_sum": 512,
+  "overlap_window": {
+    "window_s": 1.417,
+    "agg_tok_s": 106.317,
+    "n_streams": 2
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k2_20261026_062644.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k2_20261026_062644.csv",
+  "vram_max_mib": {
+    "gpu4": 75178,
+    "gpu5": 75272,
+    "gpu6": 75272,
+    "gpu7": 74792
+  }
+}
+[2026-10-26T06:26:48+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k2_20261026_062644.json
+### 2026-10-26_06:27:08 并发 k=8, ~16k token/路, mt=256
+    "n": 8
+  },
+  "decode_tok_s": {
+    "p50": 23.483,
+    "p10": 14.65,
+    "p90": 34.211,
+    "n": 8
+  },
+  "ms_step": {
+    "p50": 42.954,
+    "p10": 29.234,
+    "p90": 68.619,
+    "n": 8
+  },
+  "completion_tokens_sum": 1954,
+  "overlap_window": {
+    "window_s": 1.78,
+    "agg_tok_s": 188.288,
+    "n_streams": 8
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k8_20261026_062708.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k8_20261026_062708.csv",
+  "vram_max_mib": {
+    "gpu4": 77866,
+    "gpu5": 77940,
+    "gpu6": 77940,
+    "gpu7": 77660
+  }
+}
+[2026-10-26T06:27:16+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k8_20261026_062708.json
+### 2026-10-26_06:27:36 并发 k=16, ~16k token/路, mt=256
+    "n": 16
+  },
+  "decode_tok_s": {
+    "p50": 12.615,
+    "p10": 10.046,
+    "p90": 23.097,
+    "n": 16
+  },
+  "ms_step": {
+    "p50": 79.691,
+    "p10": 43.733,
+    "p90": 99.577,
+    "n": 16
+  },
+  "completion_tokens_sum": 4082,
+  "overlap_window": {
+    "window_s": 2.812,
+    "agg_tok_s": 228.259,
+    "n_streams": 16
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k16_20261026_062736.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k16_20261026_062736.csv",
+  "vram_max_mib": {
+    "gpu4": 78008,
+    "gpu5": 77962,
+    "gpu6": 77962,
+    "gpu7": 77782
+  }
+}
+[2026-10-26T06:27:47+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k16_20261026_062736.json
+### 2026-10-26_06:28:07 图片探针
+{"http_status": 200, "elapsed_s": 0.912, "usage": {"prompt_tokens": 199, "total_tokens": 293, "completion_tokens": 94, "prompt_tokens_details": {"cached_tokens": 0, "image_tokens": 184}, "reasoning_tokens": 0}}
+response: {"id":"064d24b9a51e4c28a3a4c8d600c87531","object":"chat.completion","created":1792967288,"model":"DeepSeek-V4.1-Flash-1017","choices":[{"index":0,"message":{"role":"assistant","content":"这张图片展示了一个**停止（Stop）按钮**的图标。\n\n具体描述如下：\n*   **形状**：一个圆形的图标。\n*   **颜色**：外圈是深色（黑色或深灰色）的细边框，内部填充为红褐色（或砖红色）。\n*   **中心**：正中间有一个白色的正方形。\n\n这种设计通常用于用户界面（UI）中，代表“停止”或“暂停”功能。","reasoning_content":null},"logprobs":null,"finish_reason":"stop","matched_stop":1}],"usage":{"prompt_tokens":199,"total_tokens":293,"completion_tokens":94,"prompt_tokens_details":{"cached_tokens":0,"image_tokens":184},"reasoning_tokens":0},"metadata":{"weight_version":"default","weight_versions":[{"version":"default","start":0,"end":94}]}}
+saved: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/image_probe_20261026_062808.json
+### 2026-10-26_06:28:09 抓两行缓存日志 (TP0 与全 rank)
+ls: write error: Broken pipe
+### 2026-10-26_06:28:09 完成

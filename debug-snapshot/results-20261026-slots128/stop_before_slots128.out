@@ -1,0 +1,62 @@
+==============================================================
+ 停止 Lsglang serve · DeepSeek-V4.1-Flash-1017 · TP4 (端口 18010)
+ conf      : /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.conf
+ PID 文件  : /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+ 策略      : SIGTERM(进程组) → 等 60s → SIGKILL(进程组)
+==============================================================
+[2026-10-26 06:00:57] PID 42999 cmdline: /mnt/SSD01/models/.llm-env/Lsglang/env/bin/python /mnt/SSD01/models/.llm-env/Lsglang/env/bin/sglang serve --model /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash
+[2026-10-26 06:00:57] 归属校验通过 ✓
+[2026-10-26 06:00:57] 将向进程组 -42999 发信号 (setsid 子会话, PGID==PID); 成员数 7
+[2026-10-26 06:00:57] 发送 SIGTERM 到 进程组 -42999…
+[2026-10-26 06:00:57]   等待退出… 0s / 60s (PID 42999 RSS=1522 MiB)
+[2026-10-26 06:01:03]   等待退出… 5s / 60s (PID 42999 RSS=1522 MiB)
+[2026-10-26 06:01:04] ✅ SIGTERM 后 6s 内优雅退出
+[2026-10-26 06:01:04] ⚠ 同进程组仍有残留 (可能是我方 worker/scheduler, 请人工确认):
+    44935 42999 [sglang::schedul] <defunct>
+    44936 42999 [sglang::schedul] <defunct>
+    44937 42999 [sglang::schedul] <defunct>
+    44938 42999 [sglang::schedul] <defunct>
+[2026-10-26 06:01:04] 已删除 PID 文件: /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+[2026-10-26 06:01:05] 端口 18010 已释放 ✓
+[2026-10-26 06:01:05] 日志尾部 (/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_052825.log):
+    [2026-10-26 05:56:57 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:56:57 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:57:16 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:57:16 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:57:27 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:57:27 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:57:46 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:57:46 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:57:57 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:57:57 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:58:16 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:58:16 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:58:27 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:58:27 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:58:46 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:58:46 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:58:57 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:58:57 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:59:16 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:59:16 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:59:27 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:59:27 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:59:46 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:59:46 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:59:57 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 05:59:57 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:16 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:16 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:27 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:27 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:46 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:46 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:57 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:57 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+    [2026-10-26 06:00:57] SIGTERM received. signum=None frame=None. Draining requests and shutting down...
+    [2026-10-26 06:00:58] Subprocess detokenizer (pid=44939) crashed with exit code -15. Triggering SIGQUIT for cleanup...
+    [2026-10-26 06:00:58] SIGQUIT received. signum=None, frame=None. It usually means one child failed.
+    [2026-10-26 06:00:58] Sleeping 5 seconds before crash diagnostics to let GPU activity settle.
+    [2026-10-26 06:01:03] No live scheduler processes found; skipping py-spy and CUDA coredump.
+    [2026-10-26 06:01:03] kill_process_tree called: parent_pid=42999, include_parent=True, pid=42999
+[2026-10-26 06:01:05] 停止流程结束。

@@ -1,0 +1,28 @@
+== 每个 rank (中位数, ms)
+rank         verify GPU  GPU idle launch API  cpu gap sync wait allreduce ar floor    step
+TP-0-EP-0         17.53      0.28       4.53    11.66      4.15      3.01     0.27   18.84
+TP-1-EP-0         17.53      0.28       4.59    11.38      3.99      2.98     0.27   18.84
+TP-2-EP-1         17.53      0.28       4.55    11.55      3.91      2.70     0.27   18.84
+TP-3-EP-1         17.53      0.28       4.60    11.31      3.66      2.73     0.26   18.84
+  GPU idle = 本步 verify 结束到下一个 graph 开始; >0.5 ms 才说明 CPU 跟不上 (ZOS 的收益上限)
+  cpu gap = verify 发射返回到下一次 draft 发射; 减去 sync wait (等 GPU 结果) 是 CPU 的真实工作,
+  launch API + cpu gap - sync wait 接近 step 时 CPU 已是瓶颈。profiler 会放大 launch API
+  allreduce - ar floor ~= 在 allreduce 里等最慢 rank 的时间
+
+== 跨 rank: verify 第一个 kernel 的开始时间, 相对最早的 rank (ms, 中位数 / 最大)
+  TP-0-EP-0      0.00 /   0.00
+  TP-1-EP-0      0.00 /   0.00
+  TP-2-EP-1      0.00 /   0.01
+  TP-3-EP-1      0.00 /   0.00
+
+== 卸载层 MoE 段 (admit -> CUTLASS 结束), ms
+  TP-0-EP-0    无换入  0.100 (n=360)   有换入  0.513 (n=180)   有换入的层占  33.3%
+  TP-1-EP-0    无换入  0.100 (n=360)   有换入  0.514 (n=180)   有换入的层占  33.3%
+  TP-2-EP-1    无换入  0.096 (n=353)   有换入  0.514 (n=187)   有换入的层占  34.6%
+  TP-3-EP-1    无换入  0.097 (n=353)   有换入  0.512 (n=187)   有换入的层占  34.6%
+
+== kernel 分族, ms/步 (verify graph)
+  TP-0-EP-0: cache: admit/copy 3.63, cutlass MoE 3.43, allreduce 3.38, deep_gemm fp8 2.29, other 2.14, mHC 1.61, attention 1.10, act quant 0.38, cache: UVA overflow 0.26
+  TP-1-EP-0: cache: admit/copy 3.64, cutlass MoE 3.45, allreduce 3.39, deep_gemm fp8 2.30, other 2.13, mHC 1.60, attention 1.10, act quant 0.38, cache: UVA overflow 0.26
+  TP-2-EP-1: cache: admit/copy 3.92, cutlass MoE 3.65, allreduce 2.93, deep_gemm fp8 2.30, other 2.13, mHC 1.60, attention 1.10, act quant 0.38, cache: UVA overflow 0.26
+  TP-3-EP-1: cache: admit/copy 3.91, cutlass MoE 3.65, allreduce 2.88, deep_gemm fp8 2.31, other 2.13, mHC 1.61, attention 1.11, act quant 0.38, cache: UVA overflow 0.27

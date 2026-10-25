@@ -1,0 +1,54 @@
+{
+  "tag": "slots128_k8",
+  "started": "2026-10-26T06:27:16+08:00",
+  "k": 8,
+  "prompt_chars": 18000,
+  "max_tokens": 256,
+  "temperature": 0.7,
+  "wall_s": 7.702148914337158,
+  "prompt_tokens_per_stream": [
+    11648,
+    11649,
+    11649,
+    11649,
+    11649,
+    11649,
+    11649,
+    11649
+  ],
+  "n_ok": 8,
+  "n_err": 0,
+  "errors": [],
+  "ttft": {
+    "p50": 3.794,
+    "p10": 1.651,
+    "p90": 4.984,
+    "n": 8
+  },
+  "decode_tok_s": {
+    "p50": 23.483,
+    "p10": 14.65,
+    "p90": 34.211,
+    "n": 8
+  },
+  "ms_step": {
+    "p50": 42.954,
+    "p10": 29.234,
+    "p90": 68.619,
+    "n": 8
+  },
+  "completion_tokens_sum": 1954,
+  "overlap_window": {
+    "window_s": 1.78,
+    "agg_tok_s": 188.288,
+    "n_streams": 8
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k8_20261026_062708.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128/bench_slots128_k8_20261026_062708.csv",
+  "vram_max_mib": {
+    "gpu4": 77866,
+    "gpu5": 77940,
+    "gpu6": 77940,
+    "gpu7": 77660
+  }
+}

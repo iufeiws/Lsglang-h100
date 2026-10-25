@@ -1,0 +1,626 @@
+# =============================================================================
+# Lsglang 1.6.1 (HEAD 60f6658524) · DeepSeek-V4.1-Flash-1017 · TP4 × 4×H100 (SM90)
+#
+# 【定稿】前 20 层 (0-19) GPU-resident → W4A8 ; 后 20 层 (20-39) → 48 槽专家池 (ep4)
+# 本文件是唯一调参入口; 脚本内有等值内置 fallback。
+# 依据: humming/docs/humming-feasibility.md + Lsglang/docs/budget-lsglang.md
+#       + docs/param-check.md (逐条源码核对)
+# 分档预案 (S0-S3) 已按 lead 指令**作废** —— 直接用定稿参数跑。
+# =============================================================================
+#
+# #############################################################################
+# 【当前状态 · 单一事实来源】2026-10-22 15:48
+#
+# 症状: 服务能完整走完 权重加载 → prewarm → engram → W4A8 预处理 → 建池 (slab 16.81 GiB ✓)
+#       → 定 KV 池, 然后在 **CUDA graph 捕获前的「eager DECODE 预热」段** SIGSEGV (exit -11)。
+#       已被证伪的两条路都只是"换了崩溃点", 从未越过该段。
+#
+# ✅ 已确认有效 (全部实测通过, 不可回退):
+#     - ep4 改档: `--ep-size 4 --attn-dp-size 1`, LK_POOL_SLOTS=48
+#       `Initialized lk_moe with 96 experts` × 160 (40层×4rank); 补齐 warning 0 条
+#       `[pool] slab: 16.81 GiB (20 layers x 860.62 MiB)` ✓
+#     - W4A8: `CUTLASS W4A8 (layer:)` **20 行**, `CUTLASS W4A16` **0 行** ✓
+#     - ENV-PATCH  (FlashInfer W4A8 预处理 int32+分块) —— 解掉了 16.875 GiB 瞬时峰值 OOM ✓
+#     - ENV-PATCH-2 (方案③ 两文件作用域补丁) —— **MoE 侧有效**:
+#       崩溃栈里 `_cpu_prefill`/`_gpu_prefill` 出现次数 = **0**(前两轮分别是段错误点/非法访存点)
+#
+# ❌ 方案① (LK_GPU_PREFILL_MIN_TOKENS 1024→1) —— **已证伪, 已回退为 1024**
+#     15:23:56 换成崩在 `_gpu_prefill → prefill_staging.py:248/:263 _launch → :335
+#     moe_gateup_group_gemm` 的 **CUDA illegal memory access**:
+#     staging 驱动按真实 EXTEND 布局准备, **不认 16-token 的 DECODE dummy 形状**。
+#     结论: `_gpu_prefill` 不能喂 DECODE 形状。(有价值的排除)
+#
+# 🔶 待定 —— 方案③ 之后暴露的**新**崩溃点 (同一段预热的 attention 侧):
+#     `flashinfer/norm/__init__.py:189 _rmsnorm_impl` → `sgl_kernel/elementwise.py:120 rmsnorm`
+#     → `layernorm.py:624 forward_cuda` → `deepseek_v4.py:1808 _normalize_q_lora`
+#     → `:3704 _run_boundary_attention` → `:5563` (③补丁后的 eager 循环)
+#     证据: logs/SEGV-evidence-20261022_154735.md (405 行, 含 4 rank 完整栈)
+#     三个待抉择杠杆 (lead 已交 compat-prober 做代码级取舍, **本脚本不做选择**):
+#       ① `FLASHINFER_USE_CUDA_NORM=0`   ⇒ 切掉 flashinfer/norm 的 CUDA-JIT 实现, 走 CuTe-DSL
+#          —— **【已采纳并启用】2026-10-22 15:51, 当前值 = 0**。详见第 4.x 节 FLASHINFER_USE_CUDA_NORM 处的完整说明与"结论条件"。
+#       ② `--cuda-graph-backend-decode=disabled` ⇒ 静默跳过整段预热
+#          (注意: `--disable-decode-cuda-graph` 因 disable_decode_cuda_graph 是正常字段可用,
+#           但 `--disable-cuda-graph` 因 Arg(no_cli=True) **敲不出来**)
+#       ③ 关 PDL (programmatic dependent launch)
+#
+# ⚠ 纪律: **不要**自行改任何参数去试新组合。等 lead 的一次性指令 (预期只改一个 env 或加一个 flag)。
+# 历史证据留档: logs/OOM-evidence-20261022_135830.md (ep1 OOM 18.75 GiB)
+#               logs/OOM-evidence-20261022_141442-ep4.md (ep4 OOM 16.875 GiB)
+#               logs/SEGV-evidence-20261022_145831.md (第1次 SEGV, _cpu_prefill)
+#               logs/SEGV-evidence-20261022_154735.md (第2次 SEGV, _rmsnorm_impl; ③ MoE 侧有效)
+# #############################################################################
+
+
+# -----------------------------------------------------------------------------
+# 1. 路径 / 端点
+# -----------------------------------------------------------------------------
+LSGLANG_ROOT="/mnt/SSD01/models/.llm-env/Lsglang"
+LSGLANG_REPO="${LSGLANG_ROOT}/lsglang"
+LSGLANG_VENV="${LSGLANG_ROOT}/env"
+MODEL_PATH="/mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017"
+RUN_DIR="${LSGLANG_ROOT}/logs"               # 模板原写 /tmp/opencode, 已改; 禁止 /tmp
+CONF_SNAPSHOT_DIR="${LSGLANG_ROOT}/configs"
+HOST="0.0.0.0"
+PORT="18010"
+SERVED_MODEL_NAME="DeepSeek-V4.1-Flash-1017"
+
+# -----------------------------------------------------------------------------
+# 2. GPU 绑定 —— 必须 UUID (裸 bus id 静默回落 GPU0; PCI: 前缀报 0 卡)
+# -----------------------------------------------------------------------------
+CUDA_DEVICE_ORDER="PCI_BUS_ID"
+GPU_UUIDS=(
+  "GPU-7561b28f-b049-bbdb-31f8-16efeb06663d"   # 物理 GPU4
+  "GPU-fb59db94-0e4e-4c4f-8ae5-4d0fdd1e0f0b"   # 物理 GPU5
+  "GPU-3c5d7267-445c-4679-bce9-503bedd0c920"   # 物理 GPU6
+  "GPU-3c0f2856-a6e3-b9d5-fd10-a08f55579fff"   # 物理 GPU7
+)
+GPU_EXPECTED_INDEXES=(4 5 6 7)
+GPU_FORBIDDEN_UUIDS=(
+  "GPU-8cc04831-01e3-5a2b-2ceb-49d32546f4d7"   # 物理 GPU0 (他人占用)
+  "GPU-ade45720-0e9e-3166-f462-c344d740c1eb"   # 物理 GPU1 (他人占用)
+)
+GPU_IDLE_MAX_USED_MIB="1024"
+
+# -----------------------------------------------------------------------------
+# 3. lk_moe 2.7.1 环境变量  (lead 定稿)
+# -----------------------------------------------------------------------------
+LK_MOE_HYBRID_ENABLED="1"      # 唯一总开关
+
+# ===== <<R2/R12 锁死 · 不要清空 LK_GPU_RESIDENT_MOE_LAYERS>> ==================
+#   lk_moe_env.py:289        is_lk_pool_layer() 定义为"**非** resident 层"
+#   mxfp4_flashinfer_cutlass_moe.py:144  非 resident 层直接 return None (跳过 W4A8 权重准备)
+#   两个前提必须同时成立: LK_GPU_RESIDENT_MOE_LAYERS 非空 且 LK_POOL_SLOTS > 0
+#   ⇒ 清空列表 ⇒ 40 层全进池 ⇒ resident=0 ⇒ W4A8 行数变 0, 开关白设
+# =============================================================================
+LK_GPU_RESIDENT_MOE_LAYERS="0-19"   # 【2026-10-23 · 恢复 A 臂 (resident 0-19 + 池128): 与 .bak-ab-20261023_1623 逐字节一致】
+                                  #  置空 ⇒ 无"全驻留"层 ⇒ 40 层全部入池 (与厂商 3090 配方同构: LK_GPU_RESIDENT_MOE_LAYERS="" + LK_POOL_SLOTS=N)
+                                  #  lk_moe 核实: 池只有**一个全局** LK_POOL_SLOTS (lk_moe_env.py:125/277-278; .so 仅暴露单标量 pool_slots)
+                                  #  ⇒ 分层/非对称槽数(288/224)不可表达 ⇒ 按用户裁决取全局 256 (= 20×288+20×224 的等总槽数 10,240 / 40 层)
+LK_GPU_RESIDENT_MOE_LAYERS_SPEC=""    # spec 未启用 → 空
+
+LK_POOL_SLOTS="0"          # 【EP2】单槽≈2×4.4824 MiB ⇒ 104 槽对应 EP1 的 208 槽字节量(预计 slab ≈18.6 GiB/卡)
+                           #  ← 2026-10-25: 值 **104 → 0**。池层(20-39) 的 decode/verify 改由本轮新增的
+                           #     GPU 专家缓存 (LK_GPU_CACHE_SLOTS, 见紧随本块的下一项) 承担;
+                           #     关池的唯一目的就是腾出这 ~18.6 GiB/卡, 否则两套显存专家缓存并存
+                           #     (代码 layer.py:2421-2423 对此打 warning)。
+                           #     单变量纪律: 本轮只改本项的值 + 新增 LK_GPU_CACHE_SLOTS 一项。
+                           #  (以下为原 104 槽推导, 保留备查)
+                           #  lk_moe 无分层能力(单标量 pool_slots) ⇒ 取全局 256 = (20×288+20×224)/40 的等总槽数 10,240 槽
+                           #  预期池 slab = 40 层 × 256 槽 × 4,482,560 B/卡 ≈ **45.9 GiB/卡**
+                           #  池槽为**未补齐**布局 (860.62 MiB/层@128槽 实测) ⇒ 不含 576→640 的 +11.11%
+                           #  口径: 每卡本地 routed 专家 = 384 ⇒ 256/384 = 该层 **67% 覆盖**
+                           #  (历史: 48=ep4 50% → 192=ep1 50% → 128=ep1 33% → 256=ep1 67% + 无 resident 层)
+
+# <<< 2026-10-25 新增 · 上游提交 1cf916ebc0 "GPU expert cache for offloaded layers" >>>
+# 计算全在 GPU 上: 每个非 resident 层(20-39) 有 S 个显存专家槽 + 全部专家的 pinned 主机副本
+# + 一张"每专家一项"的地址表。热专家指向显存槽, 其余指向主机内存 (UVA); decode 与 verify 的
+# graph 里一个分组 kernel 一次算完所有行, CPU 只存权重、不再参与 MoE 数学。
+# 换槽: 后台线程每 interval 按衰减频次挑最热的未驻留专家换掉最冷的驻留专家 (默认 200 ms)。
+# 1 槽 = 8.97 MiB/层 ⇒ 104 槽 × 20 层 ≈ 18.21 GiB/卡 (与原 lk_moe 池 104 槽同量)。
+# 显存另需约 17 MB scratch + 输出缓冲; 主机每卡 pin 约 36 GiB (lk_moe 自己的副本仍在)。
+# 代码: layer.py:2415-2443 _setup_gpu_cache 读 lk_moe_env.py:174-178 (get_gpu_expert_cache_slots)。
+# 下列换槽参数本轮**全部用代码默认值, 未经 H100 调优**(lk_moe_env.py:181-189):
+#   LK_GPU_CACHE_INTERVAL_MS=200  LK_GPU_CACHE_SWAPS=4  LK_GPU_CACHE_DECAY=0.8
+#   LK_GPU_CACHE_MIN_GAIN=1.5     LK_GPU_CACHE_LOG_S=30
+# 2026-10-26 压测轮: LK_GPU_CACHE_SLOTS=128 (128 行 × 20 层 × 9 MiB ≈ 22.5 GiB/卡);
+# --mem-fraction-static 仍为 serve 脚本里的 0.88。
+LK_GPU_CACHE_SLOTS="128"
+# 2026-10-25 (788fe82c): 缓存精度。bf16 = W4A16 (默认); fp8 = Humming W4A8 (有损: 每个专家的 E8M0 范围截到 11 档)。
+# 必须同时在 serve_dsv41_tp4_h100.sh 的 builtin_defaults 与 EXPORT_ENV 里 (已加), 否则本项不生效。
+LK_GPU_CACHE_PRECISION="fp8"
+# 2026-10-26 (02484dc4): 108 行全部作为常驻缓存; 每次 forward 最多准入 8 个 miss 专家 (超出走 UVA)。
+# 113a9017 的 PREFETCH_CTAS / STAGING 两个键已不被代码读取, 已从本 conf 删除。
+LK_GPU_CACHE_MAX_COPY="8"
+LK_POOL_LOG="100"          # 每 100 decode step 打 [pool] hit= (池命中率的唯一运行期证据)
+LK_POOL_WINDOW="32"
+LK_POOL_INFLIGHT="16"
+LK_POOL_STAGE="1"
+LK_POOL_DECODE=""
+# LK_POOL_LAYERS 已 RETIRED (README:209) → 不使用
+
+# <<< 本轮 6-row verify 合同验证 (2026-10-23) · 唯一新增旋钮 >>>
+# 关闭态: 本行留空 ⇒ serve 脚本 EXPORT_ENV 只导出非空值 ⇒ 进程环境里没有该变量
+# 开启态: LK_POOL_DET_SPLIT="1" ⇒ layer.py _LK_POOL_DET_SPLIT=True ⇒
+#   ① 每层 launch 前 lk_moe.pool_set_det_split(True) 已生效（模块导入期调用）
+#   ② _pool_decode_launch 里对 side_stream 调 lk_moe.pool_wait_fence(layer, stream),
+#      让 GPU 半等该层拷贝 fence；③ pool_record_aux 仍在（关态也执行）
+# 回滚: 把本行的 "1" 改回 "" 即可（单变量纪律）
+LK_POOL_DET_SPLIT=""      # 2026-10-25 05:2x: 关 (上一轮 =1 在 decode CUDA graph 捕获阶段退出)
+
+# CPU / NUMA  (lead 已拍板采纳按 README 公式的版本)
+# README:173 = cores/GPU; README:268 "HT on -> physical cores / GPUs"
+# 本机: 96 物理核 (48c×2socket, SMT2=192 逻辑) ÷ 4 = 24。模板 48 来自 SM86 参考机。
+LK_THREADS="24"
+LK_THREAD_BINDING="NUMA_NODE"   # 2026-10-25: CPU_CORE → NUMA_NODE (不改进程身份, 消除 EP2 下 TP0/TP1 同核争用; 厂商模板取值)
+LK_NUMA_INTERLEAVE="1"     # 必须 1: host 常驻 275.77(专家)+188.83(engram)=464.6 GiB > node1 的 401.8 GiB
+LK_POWER_SAVING="1"
+OMP_NUM_THREADS="1"
+
+# =============================================================================
+# <<方案① —— **已证伪, 已回退**。本项恢复 1024>>
+# ①的做法: `LK_GPU_PREFILL_MIN_TOKENS` 1024 → 1, 想让预热那次 eager DECODE 前向命中
+#   `:1745 should_prefill_gpu → _gpu_prefill` 以绕开 `:2647 _cpu_prefill`。
+# 实测结果 (2026-10-22 15:23:56): **换了路径但照崩** ——
+#   改为崩在 `_gpu_prefill → prefill_staging.py:248/:263 _launch → :335 moe_gateup_group_gemm`
+#   的 **CUDA illegal memory access**。原因: staging 驱动是按真实 EXTEND 布局准备的,
+#   **不认 16-token 的 DECODE dummy 形状**。
+# ⇒ 有价值的排除结论: `_gpu_prefill` 不能喂 DECODE 形状。
+# ⇒ 已回退为 1024 (回到设计分层: 大批走 GPU staging / 小批走 CPU)。
+#
+# 真正的修法 = 方案③ (compat-prober 两文件作用域补丁, 已 apply):
+#   deepseek_v4.py:5554 预热循环内 try/finally 置位/复位 `FusedMoE._eager_decode_prewarm`;
+#   layer.py:1763 新增 `elif FusedMoE._eager_decode_prewarm:` → 把 **DECODE 形状的 eager 前向**
+#     转发到 `_cpu_decode`; 原 `else: _cpu_prefill` **一字未动**;
+#   捕获期 `:1738` 仍短路在前 ⇒ **被烘进 CUDA 图的内容逐位不变**。
+#   与 `LK_GPU_PREFILL_MIN_TOKENS` 取值无关 ⇒ 本项保持设计值 1024。
+#
+# 方案③ 的成功判据: 越过 `[attn-prewarm] rank=… done: N dummy forward(s)` → 出现 `max_total_num_tokens=`。
+# 方案③ 的两种失败形态 (精确区分):
+#   a) `RuntimeError: The size of tensor a (16) must match the size of tensor b (<bs>)
+#      at non-singleton dimension 0`  ⇒ 已知边界 (output_gpu 首维截断), 干净报错, 报 bs 值即可;
+#   b) 又出现 `CUDA illegal memory access` 或段错误 ⇒ ③ 没拦住该路径, 附首处 fatal 前 15 行。
+# =============================================================================
+# =============================================================================
+# <<备选A (2026-10-22 16:21, lead 绿灯) —— LK_GPU_PREFILL_MIN_TOKENS 1024 → **0**>>
+# 目的: 关掉 GPU-prefill 档 ⇒ `get_super_chunk_size()` 直接返回 **0**
+#   (`lk_moe_env.py:133-136`: `if not is_lk_gpu_prefill_enabled(): return 0`)
+#   ⇒ `attention_backend_setup.py:130-135` 的安装门 `get_super_chunk_size() > chunked_prefill_size`
+#     即 `0 > 8192` 为**假** ⇒ **SuperChunk 注意力 wrapper 不安装**
+#     (等效地解掉第 7 轮那个 `super_chunk_backend.py:501 → … → flash_mla.py:303
+#      _flash_mla_with_kvcache_sched_meta` 的 SIGSEGV)。
+# 相比"cp 8192→16384"更优: 不会把 `max_num_batched_tokens = max(cp, super_chunk)`
+#   翻倍 ⇒ **主机侧 staging/CPU 内存不翻倍**, 且**不再 probe staging 驱动、不再有 GPU 侧预留**。
+# 与方案③ 的关系: 预热仍由 ③ 的 `elif _eager_decode_prewarm` 导向 `_cpu_decode`; 捕获期短路不变。
+#
+# 已同步回退: `--chunked-prefill-size` 恢复 **8192**(撤销 16384 那处改动, 保持单变量纪律)。
+#
+# ⚠⚠ 待观察的残余风险 (lead 要求记录): 关闭 GPU-prefill 档后, 若**真实 prefill** 会经过
+#   **非 resident 层 (20-39)**, 那批会走 `_cpu_prefill`。按用户给的架构前提
+#   (prefill 只发生在 encoder 0-19) **不应该发生**, 但**该前提来自技术报告,
+#   代码中并无显式机制保证** ⇒ 列为待观察项。若将来 prefill 报错/变慢, 先查这里。
+#   失败判据②提示: 单独出现 `_cpu_prefill` 帧, **仅当**有真实 EXTEND 前向时才有意义;
+#   若只是预热就出现, 说明 ③ 的 `elif` 没生效。
+# =============================================================================
+LK_GPU_PREFILL_MIN_TOKENS="0"      # 备选A: 关 GPU-prefill 档 (见上方说明); ① 的"降为1"已证伪
+LK_GPU_PREFILL_SUB_M="16384"       # lead 定稿 (offered 8192 与 16384; 定 16384)
+LK_GPU_PREFILL_ENGINE="triton"
+LK_GPU_PREFETCH_WINDOW="1"
+LK_GPU_RESERVE_GB="0"              # 0 = 用 lk_moe 上报的 device arena 自动扣减
+
+SPEC_ENABLED="1"           # 【本次验证】DSPARK 开
+                           #   --speculative-algorithm DSPARK --speculative-dspark-block-size 5 --speculative-attention-mode decode
+                           #   (厂商依据 launch/sglang_serve_0731_dspark_tp2_3090.sh:56-58; dspark 权重 = checkpoint 的 mtp.* 2401 键;
+                           #    开起来后 DSV4 memory calculation 行应从 dspark_draft_bf16=False 变成 True)
+LK_VERIFY_RESIDENT=""      # 【2026-10-23 · 用户判断+代码核实】=1 ⇒ mult=rpt0=6 ⇒ _pool_verify_rows_mult=6 ⇒
+                           #  ← 2026-10-25: 值 **"1" → ""** (不导出)。判断依据见下方 §LK_VERIFY_RESIDENT 存废
+LK_VERIFY_GEMM="false"           # 【本次验证】关 verify GEMM, 走 GEMV
+                           #   _pool_decode_launch 的 all_rows=True ⇒ 6 行(real+draft)**全部走 GPU 热池**,
+                           #   CPU 只算 miss; 缓冲按 rows = cap(16)×k(6)×6 = 576 分配。
+                           #   (代码: fused_moe_triton/layer.py:2451-2458 与 :2520-2531; 原为 0 ⇒ 只 gather 1 行的 k 槽, 其余 5 行由 lk_moe.cpu_decode 承担)
+LK_VERIFY_SKIP_MISS="0"
+LK_VERIFY_UVA=""           # 2026-10-25: DSPARK verify 草稿行改由 GPU 经 UVA 读主机 MXFP4 专家 (需 LK_VERIFY_RESIDENT=1, 已=1)
+                           #  ← 2026-10-25 稍后: 值 **"1" → ""** (即不导出)。GPU 专家缓存接管后该项不可达, 见下方存废说明。
+LK_VERIFY_UVA_PROVIDER=""  # 留空 ⇒ 框架自己 pin 一份副本 (每卡约 36 GiB 主机内存); 填 "pkg.module:function" 可复用现有权重
+
+# =============================================================================
+# §LK_VERIFY_RESIDENT / LK_VERIFY_UVA 存废 (2026-10-25 · 依据 1cf916ebc0 源码逐行核对)
+# 结论: 两项本轮**都置空(不导出)**。两者都服务于**已关闭的 lk_moe 池**路径, 不是被删除,
+#       而是**不可达**; 触发条件是 LK_POOL_SLOTS=0 (本文件已改) + LK_GPU_PREFILL_MIN_TOKENS=0。
+#
+# (1) LK_VERIFY_UVA —— 被 GPU 专家缓存**结构性取代**, 可信度高:
+#     layer.py:2397  `if self.gpu_cache_slots > 0: self._setup_gpu_cache(...)`   ← 命中此支
+#     layer.py:2400  `elif self.verify_uva: self._setup_verify_uva(...)`         ← 永不进入
+#     layer.py:619-624 gpu_cache_slots = get_gpu_expert_cache_slots() (非 resident 的 main 层)
+#     ⇒ LK_GPU_CACHE_SLOTS=104 时 _setup_verify_uva (layer.py:2466) 不可达, 该开关无接收方。
+#
+# (2) LK_VERIFY_RESIDENT —— **仍被读取, 但唯一有效使用点不可达**, 故置空:
+#     仍被读: lk_moe_env.py:151-154 get_verify_resident(); 调用点两处:
+#       a) layer.py:2113 `cfg.verify_resident = get_verify_resident()` —— 无条件执行,
+#          把值转发给 lk_moe 的 cfg。但 layer.py:2112 同时 `cfg.pool_slots = get_pool_slots()`
+#          = 0, 池机制整体关闭, 该 cfg 字段在本配置下没有消费者。
+#       b) layer.py:2609 `mult = rpt0 if (get_verify_resident() and rpt0>1) else 1`
+#          —— 在 _init_pool_decode (layer.py:2576) 内。该函数只由 layer.py:2573-2574
+#          `if self.pool_decode: self._init_pool_decode()` 调用, 而后者在 _init_pool 内,
+#          而 layer.py:2552-2553 `if not (self.is_pool_layer or self.is_gpu_prefill_layer): return` 提前返回:
+#            · is_pool_layer       layer.py:607 → lk_moe_env.py:321-326 → is_lk_pool_enabled()
+#                                  → lk_moe_env.py:318-319 `get_pool_slots() > 0` → LK_POOL_SLOTS=0 ⇒ False
+#            · is_gpu_prefill_layer layer.py:604 → lk_moe_env.py:138-139
+#                                  → LK_GPU_PREFILL_MIN_TOKENS="0" ⇒ 0 > 0 = False
+#          ⇒ _init_pool_decode 不执行 ⇒ layer.py:2609 不可达 ⇒ 顺带 _init_verify_uva
+#            (layer.py:2643/2646) 也不执行, 那里的 "needs ... LK_VERIFY_RESIDENT=1" warning 不会出现。
+#
+# 不确定点 (明确标注, 未验证): lk_moe 是闭源 .so, (2a) 转发的 cfg.verify_resident 在
+# pool_slots=0 时是否真的无副作用, 只做了静态推断, **未做 H100 对照实验**。若将来重开池,
+# 这两项必须一并恢复。
+# =============================================================================
+
+SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE="1"   # engram 两表 (188.83 GiB) 放主机内存
+SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK="0"
+SGLANG_SKIP_P2P_CHECK="1"
+GLOO_SOCKET_IFNAME="lo"
+NCCL_SOCKET_IFNAME="lo"
+GLIBC_TUNABLES="glibc.malloc.thp_enabled=0"
+# ---- 单杠杆 A (2026-10-22 15:51, lead 绿灯; compat-prober 推荐 + lead 在空闲 GPU2 实测探测) ----
+# FLASHINFER_USE_CUDA_NORM 1 → 0:
+#   上游默认 **0 = CuTe-DSL 实现**; 我们此前承自厂商 SM86 模板置 1 (CUDA-JIT),
+#   在 SM90 的**捕获前 eager 预热**里 SIGSEGV
+#   (`flashinfer/norm/__init__.py:189 _rmsnorm_impl → sgl_kernel/elementwise.py:120 rmsnorm`;
+#    第 2 次崩溃的栈, 见 logs/SEGV-evidence-20261022_154735.md)。
+#   探测 (lead 在空闲 GPU2 上做, 未碰 0/1):
+#     =1 → _USE_CUDA_NORM=True,  _use_cuda_norm(cuda)=True   (JIT 版 = 段错误那行)
+#     =0 → _USE_CUDA_NORM=False, cute_dsl_arch_supported(9,0)=True   ← 无静默回退
+#     未设置 → False (与上游默认一致)
+#   ⇒ Hopper(9,0) 在 CuTe-DSL 支持集内, 切 0 是**受支持**路径而非降级。
+#
+# ⚠ 结论条件 (供最终交付引用): norm 内核实现已从 **CUDA-JIT 换成 CuTe-DSL**。
+#   上游 docstring 称两者 "functionally equivalent", 但**那是上游声明, 非我们实测**。
+#   将来若要对外引用数值/精度结论, **必须单列这一条件**。
+PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"   # 【2026-10-23 · 试验A(用户批准): 消除权重转换的池化碎片(那 ~7.6 GB); 若与 CUDA 图捕获冲突则删本行并回滚】
+FLASHINFER_USE_CUDA_NORM="0"
+FLASHINFER_DISABLE_VERSION_CHECK="1"
+# 2026-10-22 16:5x · 方案(b): 作用域门跳过整段 capture 前 eager 预热 (compat-prober 补丁, 已应用)
+#   根因: 8 轮全部崩在 prepare_before_cuda_graph_capture 的 eager DECODE 预热块内
+#        (叶节点 sparse_decode_fwd / flash_mla); deepseek_v4_backend.py:241-242 的
+#        _fast_flashmla_sched_shape() 要求 is_blackwell, Hopper 恒 False
+#        ⇒ 该 sched_meta 路径在 SM90 本就是死路径 ⇒ **无配置杠杆**, 只能整块跳过。
+#   门默认 "0" = 上游行为; 置 1 时打印 `[prewarm-skip] …` 并跳过该块 (n_fwd=0)。
+#   ⚠ 判据变化: `[attn-prewarm] … done:` 按设计**不再出现**, 不算失败。
+#   风险: 同构 4×H100 无跨架构编译时点差, 最坏是首次 capture 冷编译变慢。
+SGLANG_DSV41_SKIP_CAPTURE_PREWARM="1"
+# 2026-10-22 17:1x · 第二道门 (独立语义): autotune 的 DECODE dummy 前向
+#   第 10 轮: SKIP 门确实生效 (判据吻合), 但崩溃**转移**到 autotune 段 ——
+#     base_runner.py:417 _flashinfer_autotune → :411 forward_fn → :770 _dummy_run
+#     → … → layer.py:2664 **_cpu_prefill** SIGSEGV。
+#   共同根因: 只要 `should_prefill_gpu()` 为假, **DECODE 形状的 eager dummy** 就落进 `_cpu_prefill`;
+#     ③ 的标志只覆盖 capture 预热, 没覆盖 autotune。启动期这类入口已枚举封闭, 只剩这一个活口。
+#   本门 = 把这次 autotune 的 DECODE dummy 标记为 `FusedMoE._eager_decode_prewarm`,
+#     使其在非 resident 层走 `_cpu_decode`。与 SKIP 门**语义独立、互不蕴含**, 可单独回退。
+#   生效判据: `[autotune-decode] forward_fn flagged as eager DECODE dummy …` ≥1 行。
+SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE="1"
+# =============================================================================
+# 2026-10-22 19:5x · 归因运行 (step 3) —— 只新增下面两个变量, 其余逐项与上次崩溃轮一致
+#   CUDA_LAUNCH_BLOCKING=1 : 让 launch 同步化, 把故障**归因到真正出错的那次 launch**,
+#                            而不是异步延迟暴露 (用于区分"该内核第一次就错"vs"更早的 kernel 已错")。
+#   SGLANG_DSV41_DUMP_FLASHMLA_ARGS=1 : compat-prober 的参数 dump 门 (逐次调用一行
+#       `[flashmla-args] …`), 用于抓崩溃那一次的真实入参。默认 "0" = 零副作用。
+#   判据: dump 若显示 indices 只含 {合法值,-1} / topk_length ≤ indices.shape[-1] / width%64==0
+#        ⇒ 输入合法 ⇒ 转向内核/二进制; 若显示越界值 ⇒ 直接定位到产出那一环。
+#   注: 该 dump 补丁基于 **E 已回滚后的 pristine 状态**生成。
+# =============================================================================
+CUDA_LAUNCH_BLOCKING=""    # 【2026-10-23 · 用户指示"去掉跑一下"】置空 ⇒ 脚本不导出(EXPORT_ENV 只导出非空值)；
+                        #   原为 "1"(launch 同步化, 仅用于故障归因), 会串行化 kernel launch 并破坏异步/流水重叠
+SGLANG_DSV41_DUMP_FLASHMLA_ARGS="1"
+# 2026-10-22 18:0x · E 补丁门 (SWA/indexer padding 哨兵值)。补丁已 apply 到两个 site-packages 文件:
+#   deepseek_v4_backend.py (marker×2) 与 dsv4/indexer.py (marker×1), py_compile OK, .orig4 备份在。
+#   动机: flash_mla.py:299-301 只要有 indices/topk_length 就走 sparse_decode_fwd, DSV4.1 的 indexer
+#     恒定提供它们 ⇒ 无配置开关可退回稠密路径。E 把 padding 行改成 成对哨兵
+#     (page → -1, length → 0), 让 padding 行不再指向真实页。
+#   ⚠⚠ 关键未证实假设: `topk_length==0` 的语义**未证实** (wheel 里没有 SM90 sparse_decode_fwd 源码)。
+#      ⇒ **服务起来后必须**跑固定 prompt / T=0 的数值对拍; 有任何 token 差异 ⇒ 立即 rollback 并上报。
+#     回滚: bash /mnt/SSD01/models/.llm-env/humming/patches/rollback_sglang_dsv41_swa_pad_sentinel.sh
+SGLANG_DSV41_SWA_PAD_SENTINEL="1"
+# 【2026-10-23 01:08 · 用户指示: 启动并把该开关打开】SGLANG_DSV41_POST_CONVERT_RELEASE
+#  作用: 在 KV 定容前显式释放权重转换期可能残留的装饰性缓冲并打印 reclaimed;
+#        若回收≈0 则枚举存活的大 CUDA 张量并打印引用者类型名。
+#  补丁位置: site-packages/sglang/srt/mem_cache/kv_cache_configurator.py (已应用)
+SGLANG_DSV41_POST_CONVERT_RELEASE="1"
+
+# 必须**保持未设**的 (设了会破坏方案):
+#   SGLANG_DSV4_FP4_DEQUANT      默认 False; deepseek_v4.py:80 用它作 auto→flashinfer_mxfp4 的门
+#   SGLANG_SM8X_MARLIN_GROUP32*  SM90 无效 (fp8.py:562: 80<=cap<89; H100=90) → 已删
+# 不需要安装 humming-kernels: 方案 A 复用仓库自带 FlashInfer CUTLASS W4A8 分支;
+#   pyproject 钉的 humming-kernels==0.1.12 只给 --moe-runner-backend humming (方案 B) 用。
+
+# -----------------------------------------------------------------------------
+# 3.x ==ep-size 口径==
+#   【2026-10-22 14:05 更新 · 用户已批准 ep4】定稿改为 **--ep-size 4 --attn-dp-size 1**
+#   (见第 6 节 SERVE_COMMON_ARGS 内的 ep4 改档说明)。原 ep1 口径的推导保留在下方备查。
+#   ep4 下的关键差异:
+#     ep_size=4 → 每卡 num_local_experts = 384/4 = **96** (layer.py:442)
+#       ⇒ 池槽上限 = 96; LK_POOL_SLOTS 取 48 (= 本层专家 50%, 与 ep1 下 192/384 覆盖率相同)
+#       ⇒ W4A8 预处理 int64 瞬时峰值 18.75 GiB → ≈4.7 GiB (解掉 13:58 的 OOM)
+#       ⇒ 中间维不切分 (2304, %128==0) ⇒ 不再触发 576→640 补齐
+#     ep_size=1 (原方案, 备查) → 每卡 384 ⇒ 池可到 384 槽。
+# --- 原 ep1 推导 (备查) ---
+#   parallel.py:269-276   ep_size 默认 1 (别名 --expert-parallel-size / --ep)
+#   layer.py:442          _num_local_routed = _num_global_routed // storage_ep_size
+#   layer.py:2011/2022    lk_moe 的 cfg 用 moe_runner_config.num_local_experts
+#   代入 (n_routed_experts=384, TP=4):
+#     ep_size=1 → 每卡 384 个本地专家 ⇒ 池最多可容 384 槽 ⇒ **192 槽成立 (50% 常驻)**
+#     ep_size=4 → 每卡  96 个本地专家 ⇒ 192 槽 > 96 **无意义**
+#   lk_moe_env.py 全文无 ep_size 读取/校验 ⇒ 混用 ep_size=4 不报错, 只**静默退化**。
+#   (仓库自带 DSV4.1 TP4 精度测试用的 --ep-size 4 就是现在采纳的口径 —— 见第 6 节)
+# ⚠ 单一事实来源: ep 参数**只**写在第 6 节 SERVE_COMMON_ARGS 里 (`--ep-size 4` / `--attn-dp-size 1`)。
+#   此处**不再**定义 SERVE_EP_ARGS 空数组 —— 该残留曾与第 6 节自相矛盾, 导致误判 "ep4 没生效"。
+
+# -----------------------------------------------------------------------------
+# 4. <<CUDA graph>>  (参数名与默认值已核实)
+#   4.1 参数名: --cuda-graph-config '<JSON>' | --cuda-graph-backend-{decode,prefill} |
+#       **--cuda-graph-max-bs-decode / --cuda-graph-max-bs-prefill** |
+#       --cuda-graph-bs-{decode,prefill} | --disable-{prefill,decode}-cuda-graph |
+#       --disable-cuda-graph (仍可用, 但已是废弃别名, 官方替代 --cuda-graph-backend-*=disabled)
+#       ⚠ lead 写的 `--cuda-graph-max-bs` 在本版本**不存在**, 正确拼写带 -decode/-prefill 后缀
+#       (证据: srt/arg_groups/fields/exec_.py:560-630)
+#   4.2 默认最大 batch: memory_hook.py:118-136, gpu_mem<90*1024(H100) →
+#       decode graph max_bs = tp_size<4 ? 256 : 512 ⇒ 本机 **默认 512**;
+#       对应约 52 次 decode 图捕获 (cuda_graph_hook.py:544-549)
+#   4.3 图捕获显存**不计入** mem-fraction-static:
+#       memory_hook.py:55-70 官方原文 "GPU memory capacity = model weights + KV cache pool
+#       + activations + cuda graph buffers ... mem_fraction_static is defined as
+#       (model weights + KV cache pool) / GPU memory capacity"
+#       ⇒ 显式钉 0.88 ⇒ 激活 + graph buffers 必须挤进剩余 12% ≈ **9.56 GiB/卡**
+#       ⇒ 默认 max_bs=512 的 52 张图很可能是这块余量的主要消耗者 → OOM 风险落点
+#   4.4 旋钮 (显存压力调节阀; 空 = 不传, 用 sglang 默认 512)
+CUDA_GRAPH_MAX_BS="16"     # = --max-running-requests 16 ⇒ 覆盖全部可能 batch, 无浪费
+CUDA_GRAPH_BACKEND=""      # 空 = 不传; "disabled" → 关 decode 图 (仅 OOM 排查用, 会降吞吐)
+#   4.5 判定 CUDA graph 是否启用的日志串 (cuda_graph_setup.py:641-651, 715-747)
+#       启用: Capture {role} decode {backend} end. bs=[...], elapsed=X s,
+#             mem usage=X GB, avail mem=X GB.        ← mem usage 即图捕获真实开销
+#       未启用: Disable prefill CUDA graph because cuda_graph_config resolved
+#               prefill.backend='disabled' ...
+#   4.6 其它必读 memory breakdown 行
+#       max_total_num_tokens=<N>, chunked_prefill_size=<...>, max_prefill_tokens=<...>,
+#         max_running_requests=<...>, context_len=<...>, available_gpu_mem=<G> GB  (scheduler.py:1254-1263)
+#       [pool] slab: %.2f GiB (%d layers x %.2f MiB)
+#       Initialized lk_moe with <N> experts for layer <L> [CPU|GPU]
+#         ⚠ [GPU] 分支其实没构造 lk_moe (layer.py:2010-2013 直接 return), 勿读作"已初始化"
+#       engram host table <label>: layout=..., <N> MiB resident, <M> MiB in huge pages (<pct>%)
+#         ⚠ 出现 "No huge pages: expect ~10x slower lookups" → 生效但性能退化, 当告警
+
+# -----------------------------------------------------------------------------
+# 5. KV 口径 = **4 × 1M** (用户澄清: 并发超卖, 只需 4×1M)
+#   KV/token = 1630 + 0.005×23400 = **1747 B**  (compat-prober 钉死的公式)
+#   4×1M = 4,194,304 tok × 1747 B = **6.83 GiB/卡**
+#   显存账 (含 resident 层 576→640 补齐 +11.11%):
+#     W_fix 2.987 + resident 20×1.681×640/576 = 37.36 + pool 192槽×20层 = 4.203
+#     ⇒ W ≈ 44.55 GiB/卡 ; 预算 0.88×79.64 = 70.090 ⇒ KV 预算 ≈ **25.54 GiB/卡**
+#     ⇒ 4×1M 只需 6.83 GiB, **余量充足**; KV 上限 ≈ 15.7 M tokens
+#   ⇒ lead 定稿修正 (KV 口径已重算):
+#     每 full-token 仅 **1630 B** (只有 4 层 2/8/14/20 落全量 KV; deepseek_v4_memory_pool.py:1537-1548/1763-1782)
+#     ⇒ 4×1M = 4,194,304 × 1630 B = **6.37 GiB/卡**; 加 SWA 固定 0.90 GiB ⇒ **7.27 GiB/卡**
+#     ⇒ **显式钉 --max-total-tokens 4194304**, 避免 sglang 自动多分 KV, 把余量留给 CUDA graph;
+#       这也才能保证 "4×1M" 这条需求被精确满足。
+MAX_TOTAL_TOKENS="4194304"   # "" = 不传 (自动); 定稿 = 4×1M 硬钉
+
+# -----------------------------------------------------------------------------
+# 5.x 修正后的每卡账 (cap 模式, mrr16; resident 层 SM90 会把 576 补到 640, +11.11%)
+#   70.090 (0.88 预算)
+#   − 2.987   (W_fix 非专家权重)
+#   − 37.4~38.3 (20 resident 层 × 1.868~1.915; 两 teammate 单价差 2.5%, 取区间)
+#   − 16.81   (池 192 槽 × 20 层 × 4.482 MiB)
+#   − 7.27    (4M KV 6.37 + SWA 固定 0.90)
+#   = 余量 ≈ **4.7~5.7 GiB/卡**  ← 要装 CUDA graph 捕获 + eager 激活 + sampling
+#   ⇒ 这是唯一可能 OOM 的口子; CUDA_GRAPH_MAX_BS=16 就是为它准备的。
+#   ⚠ 若在**图捕获或首个 eager batch** 处 OOM: 停住报告, 不要自行改参数。
+#     lead 预置回退顺序: 池 192→128 → 关 prefill 图 → 降 decode 图桶。
+#   ⚠ 池不要调到 288: 有 20 个 resident 层时池上限约 260 槽
+#     (288 会 65.56 + 7.27 = 72.8 > 70.09 超预算)。**192 是对的**。
+
+# -----------------------------------------------------------------------------
+# 6. `sglang serve` 参数 —— lead 定稿 + 2026-10-22 首启事故修复
+#    (刻意**不传**: --max-total-tokens? 不 —— 传 4194304, 见 5 节 / --ep-size / --speculative-* / 任何 SM8x 开关
+#     也**不传** --disable-custom-all-reduce / --swa-full-tokens-ratio)
+# -----------------------------------------------------------------------------
+SERVE_COMMON_ARGS=(
+  --tensor-parallel-size 4
+  --ep-size 2                      # 【2026-10-23 · 用户要求】专家并行=2
+  --mem-fraction-static 0.88
+  --max-running-requests 16
+  --context-length 1048576
+  # --chunked-prefill-size 必须显式给 (2026-10-22 13:41 首启事故的修复):
+  #   layer.py:1945  max_num_batched_tokens = get_server_args().chunked_prefill_size
+  #   layer.py:1947  min(4096, max(max_num_batched_tokens, get_super_chunk_size()))
+  #   不传 ⇒ chunked_prefill_size=None ⇒ max(None, 16384) → TypeError (MoE 构造期, 4 个 rank 全崩)
+  #   同文件 578 行有 `or 0` 兜底, 1945 行漏了 —— lk_moe 补丁的健壮性缺陷。
+  #   仓库自带模板本就有此 flag (launch/sglang_serve_dsv41_tp4.sh:53 = 1024)。
+  #   取 8192 (lead 批准): memory_hook.py:118-136 对 H100 的设计默认意图值, 与上游一致;
+  #     对 lk_moe 侧无副作用 (min(4096, max(8192,16384)) = 4096, 与 1024 同结果), 只改 cfg.max_batch_size。
+  #   不取 32000: chunk 越大激活显存越大, 而净余量仅 ≈5.67 GiB 还要同时装图捕获。
+  # ---- 2026-10-22 16:10 · 单杠杆: 8192 → **16384** ----
+  # 目的: 令 SuperChunk 注意力 wrapper 的**安装门为假**。门在
+  #   `attention_backend_setup.py:131-140`:
+  #     elif (get_super_chunk_size() > 0 and (chunked_prefill_size or 0) > 0
+  #           and get_super_chunk_size() > chunked_prefill_size      # 我们: 16384 > 8192 = 真
+  #           and not is_draft_worker):
+  #         attn_backend = SuperChunkAttnBackend.init_new(..., inner_size=chunked_prefill_size)
+  #   `get_super_chunk_size()` = `LK_GPU_PREFILL_SUB_M`(=16384); 日志里的 `inner=8192` 正是本值。
+  #   ⇒ 这个 wrapper 是**被我们这组参数装上来的**, 第 7 轮崩溃就在它的
+  #     `super_chunk_backend.py:501 forward → deepseek_v4_backend.py:3984 → :4244 _forward_attention
+  #      → sgl_kernel/flash_mla.py:303 _flash_mla_with_kvcache_sched_meta` SIGSEGV。
+  #   改成 16384 后 `16384 > 16384` 为假 ⇒ wrapper 不再安装。
+  # 为何不用 MIN_TOKENS=0: 那样会连带取消**整个** GPU-prefill 档 + 跳过驱动 probe;
+  #   本改法保留 MoE 侧 GPU-prefill 档与其 staging 几何(SUB_M 不动), 只摘掉出事的注意力 wrapper。
+  #   (MIN_TOKENS=0 作为**备用杠杆**保留。)
+  # ⚠ 副作用 (结论条件): chunked prefill 8192→16384 ⇒ 预填分块更大、**激活峰值上升**
+  #   (KV 之后尚有 ≈10 GiB 余量); 预填吞吐可能变化(不必然是坏)。
+  # ---- 2026-10-22 16:10 · 单杠杆 8192→16384 —— **已被备选A取代, 已回退为 8192** ----
+  # (当时目的: 令 SuperChunk wrapper 安装门 16384>16384 为假。备选A 用 MIN_TOKENS=0
+  #  达到同一目的且不翻倍 max_num_batched_tokens, 故此处恢复 8192。)
+  --chunked-prefill-size 8192
+  # ---- ep4 改档 (2026-10-22 14:05, 用户批准; 对齐仓库自带 DSV4.1 TP4 精度配方
+  #      python/sglang/test/dsv41_flash_common.py:21-22) ----
+  # 为什么 ep4 能解 OOM 且省显存:
+  #  1) W4A8 预处理的 int64 临时张量按"每卡本地专家数"展开
+  #     (flashinfer/fused_moe/prepare.py:203 _process_humming_mxfp4_w4a8_payload):
+  #     ep1 = 384 本地专家 ⇒ 一次性峰值 **18.75 GiB** (实测报错值);
+  #     ep4 =  96 本地专家 ⇒ 约 **4.7 GiB**。
+  #  2) ep4 下 MoE 中间维**不按 TP 切分** (保持 2304), 而 2304 % 128 == 0
+  #     ⇒ **不再触发 576→640 的 +11.11% 补齐**, 每卡权重再省 ≈3.7 GiB。
+  #  3) 每卡专家总量不变: ep1 384×4.482MiB/层 = ep4 96×17.93MiB/层 = 1721 MiB/层。
+  # 新增核对项 (启动日志):
+  #   ① **不应再出现** `Padding MXFP4 experts from intermediate=576 to 640` —— 出现即 ep4 未生效
+  #   ② `[pool] slab` 应报 **48 槽 × 20 层** (≈16.81 GiB/卡, 全 4 卡 67.2)
+  #   ③ 应能看到 ep/local experts = 96 的证据
+  # 【2026-10-22 21:47 · 用户指示原文: "去掉 ep, 用 TP4, 暂不启动"】
+  #  ⇒ 去掉 ep ⇒ MoE 走 TP4 分片, ep_size 回默认 1。
+  #  (取消注释即可恢复 ep4; ep1 下每卡本地专家 = 384, 故 LK_POOL_SLOTS=48 仍远小于上限)
+  # --ep-size 4
+  # 【2026-10-22 21:5x · 用户指示原文: "这两项都要改"】去掉 --attn-dp-size 1
+  #  (它是随 ep4 一起加的; 去 ep 后回到该 flag 默认值)
+  # --attn-dp-size 1
+  # 注意: **不传 --swa-full-tokens-ratio** (lead 定稿修正) —— 不传即进 cap 模式:
+  #   系统内部把系数置 0, SWA 变固定字节 (≈0.49 GiB@mrr4 / 0.90@mrr16), 更省;
+  #   显式传 r 才会按 1630 + 23400·r B/full-token 计。
+  --moe-runner-backend flashinfer_mxfp4
+  # 2026-10-22 17:2x · 新增 --disable-flashinfer-autotune (lead 确认拼写; --help 原文
+  #   "Disable FlashInfer autotuning.")。目的: autotune 的 dummy 前向连崩两次
+  #   (#10 MoE `_cpu_prefill` / #11 attention `_flash_mla_with_kvcache_sched_meta`),
+  #   而它只是"给内核调参"的性能 pass, **不是服务必需**。
+  #   生效后 `should_run_flashinfer_autotune()` 返回 False ⇒ `base_runner.py:282-288`
+  #   那整段 `_flashinfer_autotune` + `maybe_flashinfer_autotune_extend` 都不跑。
+  #   判据变化: 日志**不应再出现** `[AutoTuner] … Tuning …`; 因整段被关,
+  #   `[autotune-decode]` 行**预期也不再出现**(那是 forward_fn 内的日志) —— 属正常, 别再等它。
+  # ⚠ 2026-10-22 18:0x E 轮: `--swa-full-tokens-ratio 0.1` **已撤掉** (回到 cap 模式)。
+  #   A 轮证明它不是解; 且实测把 capture 期 avail_mem 从 11.48 GB 压到 9.14 GB (−2.34 GB)
+  #   并触发 prefill 图自动关闭 ⇒ 背这个代价无收益。
+  --disable-flashinfer-autotune
+  # 2026-10-22 17:3x · 新增 --swa-full-tokens-ratio 0.1 (对齐厂商 dsv41 TP4 模板原值)
+  #   目的: 一次性排除"SWA 池尺寸"这个因素 (compat-prober 判定**预期无效**, 但零代码零风险)。
+  #   背景: flash_mla.py:299-301 只要有 indices/topk_length 就走 sparse_decode_fwd,
+  #         DSV4.1 的 indexer 恒定提供它们 ⇒ **无配置开关可退回稠密路径**; 关图也无效 (eager 同样崩)。
+  #   ⚠ 风险: 该 flag 会把 SWA 池变大 ⇒ 4×1M 的 KV 由 cap 模式 ≈6.9 GiB/卡 涨到 r=0.1 时 ≈15.5 GiB/卡。
+  #     盯: 是否 OOM; `max_total_num_tokens` 是否仍为 4194304 (明显变小 ⇒ 显存不够, 也是有用信息)。
+  # 【已撤掉】--swa-full-tokens-ratio 0.1  ← E 轮基线回到 cap 模式 (不传)。A 轮已证它不是解, 且压低 avail_mem。
+  # 【2026-10-23 00:38 · 用户指示原文: "切回他原来的 W4A16 看看"】W4A8 → W4A16 对照
+  #  CLI 定义处核准 (arg_groups/fields/exec_.py:848-853):
+  #    flashinfer_mxfp4_moe_precision: Literal["default","bf16","fp8"] = **"default"**
+  #    (注意: 默认值是字面 "default", 不是字面 "bf16")
+  #  语义 (mxfp4_flashinfer_cutlass_moe.py:45): _use_sm90_humming = (not is_sm120) and precision == "fp8"
+  #    ⇒ 只有 "fp8" 走 W4A8 (SM90 Humming 路径); "default" 与 "bf16" 都走 **W4A16**
+  #  本处显式写 bf16 (= W4A16), 以明确表达对照意图; 亦可写 "default" 或整行删除(等价)。
+  # 【2026-10-23 00:57 · 用户指示原文: "不传该 flag"】⇒ 不显式指定, 用它自己的默认值 default
+  #  依据: 厂商 launch/ 下 **17/17 个脚本全部不传**该 flag (忠实复现厂商口径);
+  #        CLI 默认值 = 字面 **"default"** (arg_groups/fields/exec_.py:848-853);
+  #        语义上非 fp8 ⇒ **W4A16** (mxfp4_flashinfer_cutlass_moe.py:48:
+  #          _use_sm90_humming = (not is_sm120) and precision == "fp8")。
+  #  历史: 00:38 曾显式写 bf16 作 W4A8→W4A16 对照; 现按用户裁决改为不传(等价于 default)。
+  # --flashinfer-mxfp4-moe-precision bf16
+  --enable-decoder-swa-bounded-replay
+  --disable-shared-experts-fusion
+  --reasoning-parser auto
+  --tool-call-parser auto
+  --enable-hierarchical-cache      # 【2026-10-23 · 用户要求开 HiCache】
+  --hicache-ratio 6                # DSV4 必须显式 ratio(--hicache-size 被拒); host ≈ ratio × device KV 池容量
+  --trust-remote-code
+  --api-key "sk-dsv41-h100-interop-2026"   # 【2026-10-24 · 用户要求】启用 API key 鉴权; 客户端需带 Authorization: Bearer <该值>
+)
+SERVE_EXTRA_ARGS=()
+
+# -----------------------------------------------------------------------------
+# 7. 启动后自检断言
+# -----------------------------------------------------------------------------
+# 【2026-10-23 00:5x · W4A8→W4A16 对照轮, 期望/禁止串**对调**】
+# 【2026-10-23 05:0x · 判据改为**模式无关**, 修全池模式误报】
+#   原因: 原 EXPECT 用的是 resident 转换路径才打的 `…CUTLASS W4A16` 串; 全池模式
+#   (`LK_GPU_RESIDENT_MOE_LAYERS=""` + pool=256) 下 resident 为空 ⇒ 该串**根本不出现**,
+#   且 W4A8 也不出现 ⇒ 两个计数都是 0 ⇒ **每轮误报 ALARM**(本轮实测踩到)。
+#   新判据:
+#     EXPECT = `[pool] slab:`   —— **两种模式都必然出现**(建池成功即有)
+#     FORBID = `…CUTLASS W4A8`  —— 任何模式下都不该出现
+#   resident 模式下"应有 W4A16 行"的检查改为**条件断言**(见 run_self_check, 仅当
+#   LK_GPU_RESIDENT_MOE_LAYERS 非空时才要求), 不再作为全局期望。
+# 【2026-10-25 18:2x · 本轮 (b9b8a46b, LK_POOL_SLOTS=0 + LK_GPU_CACHE_SLOTS=104)】
+#   旧 EXPECT `[pool] slab:` 在池关闭后**必然 0 命中** ⇒ 服务健康但脚本 exit 1 (上一轮实测)。
+#   新 EXPECT = GPU 专家缓存每层一行的建缓存日志 (layer.py _setup_gpu_cache), 池层 20-39 共 20 行:
+#     LK_GPU_CACHE_SLOTS: layer N: 104 VRAM slots (... GiB), 192 experts pinned on host (... GiB)
+SELFCHECK_EXPECT_STR="LK_GPU_CACHE_SLOTS: layer"
+SELFCHECK_FORBID_STR="Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A8"
+SELFCHECK_MIN_W4A8_LINES="1"     # 期望 ≈20 行 (resident 层数); 取 1 作硬门槛
+SELFCHECK_EXPECT_RUNNER="flashinfer_mxfp4"
+ALLOW_NO_W4A8="0"                # 1 = 缺 W4A8 串也不报错 (本定稿保持 0: 必须出现)
+# (串来源: mxfp4_flashinfer_cutlass_moe.py:165-169 逐字生成)
+
+# -----------------------------------------------------------------------------
+# 8. 运行控制
+# -----------------------------------------------------------------------------
+STARTUP_TIMEOUT_S="3600"    # 首次启动大量 JIT 编译 (README), 给足
+HEALTH_CURL_TIMEOUT_S="5"
+STOP_SIGTERM_WAIT_S="60"
+PID_FILE="${RUN_DIR}/serve_dsv41_tp4_h100.pid"
+LOG_PREFIX="serve_dsv41_tp4_h100"
+STATUS_TAIL_LINES="40"
+
+# =============================================================================
+# 9. 备选档位
+#    ⚠【2026-10-22 14:05 已作废/仅备查】以下 B/C 档是按 **ep1 + pool 192** 算的,
+#      ep4 改档后前提不成立 (瞬时峰值已从 18.75 GiB 降到 ≈4.7 GiB, 不再需要腾 6.98 GiB)。
+#      保留仅为记录当时的推算过程, **不要照抄启用**。
+#    2026-10-22 13:58 OOM 事故的**零代码改动**预案
+#    —— 全部注释掉, 默认值不变。lead 下令时才取消注释对应块。
+#
+# 事故: FlashInfer W4A8 专家预处理**未分块**, 一次性要 18.75 GiB
+#   flashinfer/fused_moe/prepare.py:203 `_process_humming_mxfp4_w4a8_payload`
+#   三个 int64 张量同时驻留 (fp4_codes.to(torch.long) / delta.to(torch.long) / lut[delta, fp4_codes])
+#   同文件 :1817-1838 的另一函数就是 `for begin in range(0, rows, chunk_rows)` 分块写的。
+#   证据留档: logs/OOM-evidence-20261022_135830.md
+#
+# 实测基线 (从 OOM 报错行读到的硬数字):
+#   有效卡容量        = 79.18 GiB   (85019590656 B)
+#   崩溃时 in-use     = 67.41 GiB   (其中 PyTorch 已分配 64.71)
+#   崩溃时 free       = 11.39 GiB
+#   一次性峰值需求    = 18.75 GiB   (20132659200 B)
+#   ⇒ **要过关必须让那一刻 free ≥ 18.75, 即 in-use ≤ 60.43 GiB**
+#   ⇒ **净需腾出 ≥ 6.98 GiB** (67.41 − 60.43)
+#
+# 单位成本 (全队已核定, 每卡):
+#   W_fix 非专家权重                       = 2.987 GiB
+#   resident 层 (384 专家, 含 576→640 补齐) = 1.868 ~ 1.915 GiB/层
+#   池槽                                   = 4.482 MiB/(槽 × 层)
+#   KV (4M 全量 6.37 + SWA 固定 0.90)       = 7.27 GiB
+#   实测校准项 (prewarm/激活/非 PyTorch)     ≈ +2.0 ~ +3.0 GiB  (由 67.41 − 65.37 反推)
+#
+# ---- 当前(失败)档: resident 0-19, pool 192 ----
+#   2.987 + 20×1.868~1.915 (37.36~38.30) + 192×20×4.482MiB (16.81) + 7.27 = 64.43~65.37
+#   + 校准 2.0~3.0 ⇒ in-use 66.4~68.4  (实测 67.41 ✓ 模型自洽)
+#   free 10.8~12.8 < 18.75  ⇒ OOM ✗
+#
+# ---- ⚠ 重要更正: lead 预登记的 "池 192→128" 这一步**不够** ----
+#   192→128 只腾出 (192−128)/192 × 16.81 = **5.60 GiB** < 需腾的 6.98 GiB
+#   ⇒ in-use ≈ 61.81, free ≈ 17.37 < 18.75 ⇒ **仍会 OOM (差 1.38 GiB)**
+#   192→96 腾出 8.40 GiB ⇒ free ≈ 20.17 ✓ (刚好); 192→64 = 备选C ✓
+#
+# ---- 备选 B: resident 收窄到 0-7 (8 层), 池覆盖 32 层, pool 仍 192 ----
+#   2.987 + 8×1.868~1.915 (14.94~15.32) + 192×32×4.482MiB (26.89) + 7.27 = 52.09~52.47
+#   + 校准 2.0~3.0 ⇒ in-use 54.1~55.5
+#   **free ≈ 23.7 ~ 25.1 GiB**  ⇒ 峰值后余量 **+4.9 ~ +6.3 GiB** ✅
+#   代价: W4A8 只覆盖 **8 层**(原 20 层); 池总量反而变大到 6144 槽 (192×32)
+#   净腾出 = 37.36→14.94 (−22.42) 与池 16.81→26.89 (+10.08) 相抵 ⇒ **−12.34 GiB**
+#   启用: 取消下面两行注释
+# LK_GPU_RESIDENT_MOE_LAYERS="0-7"
+# LK_POOL_SLOTS="192"
+#
+# ---- 备选 C: resident 仍 0-19, 池缩到 64 ----
+#   2.987 + 20×1.868~1.915 (37.36~38.30) + 64×20×4.482MiB (5.60) + 7.27 = 53.22~54.16
+#   + 校准 2.0~3.0 ⇒ in-use 55.2~57.2
+#   **free ≈ 22.0 ~ 24.0 GiB**  ⇒ 峰值后余量 **+3.2 ~ +5.2 GiB** ✅
+#   代价: W4A8 覆盖 **保持 20 层**(优于 B); 池缩到 1280 槽 (原 3840), 缓存收益大减
+#   净腾出 = 池 16.81→5.60 ⇒ **−11.21 GiB**
+#   启用: 取消下面一行注释
+# LK_POOL_SLOTS="64"
+#
+# ---- B vs C 取舍 ----
+#   B 腾得多一点 (−12.34 vs −11.21) 且总槽数更大 (6144 vs 1280), 但 W4A8 只覆盖 8 层;
+#   C 保住 20 层 W4A8 (用户的核心诉求就是这个), 代价是池几乎失去缓存意义。
+#   若用户最看重 W4A8 → 选 C; 若最看重池命中率 → 选 B。
+#   (根治仍是 lead 正在请示的**代码分块**方案, 两者都只是停损。)
+# =============================================================================
