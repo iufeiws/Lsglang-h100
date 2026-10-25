@@ -7,6 +7,7 @@ keep importing the names from ``sglang.srt.utils.common`` (compat re-export).
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Optional
 
 from sglang.srt.utils.env_vars import (
     get_bool_env_var,
@@ -198,6 +199,16 @@ def get_gpu_expert_cache_precision() -> str:
     precision = get_str_env_var("LK_GPU_CACHE_PRECISION", "bf16")
     assert precision in ("bf16", "fp8"), f"LK_GPU_CACHE_PRECISION={precision!r}"
     return precision
+
+
+def get_gpu_expert_cache_host_numa() -> Optional[int]:
+    # NUMA node of the pinned host rows every admission copies from: "auto" = the
+    # GPU's own node, "off" = the process policy (numactl --interleave=all under LK,
+    # which puts half of each expert on the other socket), or a node id.
+    value = get_str_env_var("LK_GPU_CACHE_HOST_NUMA", "auto")
+    if value == "off":
+        return None
+    return -1 if value == "auto" else int(value)
 
 
 def get_gpu_expert_cache_log_interval_s() -> int:

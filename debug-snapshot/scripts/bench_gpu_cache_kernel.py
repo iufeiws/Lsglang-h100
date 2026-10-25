@@ -21,6 +21,7 @@ from sglang.srt.layers.moe.gpu_expert_cache import (
     LayerCache,
     MoeParams,
     cache_forward,
+    gpu_numa_node,
 )
 
 E, H, I, K = 192, 5120, 1152, 6
@@ -87,6 +88,7 @@ def main():
     ap.add_argument("--iters", type=int, default=50)
     ap.add_argument("--rows-vram", type=int, default=108)
     ap.add_argument("--max-copy", type=int, default=8)
+    ap.add_argument("--host-numa", default="auto", help="auto = GPU 所在节点, -1 = 进程策略, 或节点号")
     ap.add_argument("--precision", choices=["bf16", "fp8"], default="bf16",
                     help="bf16 = W4A16, fp8 = Humming W4A8 (与 LK_GPU_CACHE_PRECISION 相同)")
     ap.add_argument("--miss-experts", type=int, nargs="*", default=[0, 1, 2, 4, 6, 8])
@@ -94,8 +96,11 @@ def main():
 
     slots = args.rows_vram
     fp8 = args.precision == "fp8"
+    node = gpu_numa_node("cuda") if args.host_numa == "auto" else int(args.host_numa)
     cache = LayerCache(layer_id=0, host_tensors=_experts(), num_rows=slots,
-                       max_copy=args.max_copy, score_decay=0.99, fp8=fp8, device="cuda")
+                       max_copy=args.max_copy, score_decay=0.99, fp8=fp8,
+                       host_numa_node=node, device="cuda")
+    print("row source NUMA node", node, "first pages on", cache.row_source_nodes)
     slot_of0, row_expert0 = cache.slot_of.clone(), cache.row_expert.clone()
     max_rows = max(args.rows + args.eager_rows)
     buffers = ForwardBuffers(num_experts=E, max_rows=max_rows, top_k=K, hidden=H,

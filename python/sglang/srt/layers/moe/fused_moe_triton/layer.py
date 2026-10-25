@@ -108,6 +108,7 @@ _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 logger = logging.getLogger(__name__)
 
 from sglang.srt.utils.lk_moe_env import (
+    get_gpu_expert_cache_host_numa,
     get_gpu_expert_cache_log_interval_s,
     get_gpu_expert_cache_max_copy,
     get_gpu_expert_cache_precision,
@@ -2424,6 +2425,7 @@ class FusedMoE(torch.nn.Module):
             ForwardBuffers,
             LayerCache,
             MoeParams,
+            gpu_numa_node,
         )
         tensors = tuple(t.data.view(torch.uint8) for t in (w13, s13, w2, s2))
         if not all(t.device.type == "cpu" and t.is_contiguous() for t in tensors):
@@ -2442,11 +2444,13 @@ class FusedMoE(torch.nn.Module):
                 "set LK_POOL_SLOTS=0")
         device = torch.cuda.current_device()
         fp8 = get_gpu_expert_cache_precision() == "fp8"
+        numa = get_gpu_expert_cache_host_numa()
+        node = -1 if numa is None else (gpu_numa_node(device) if numa < 0 else numa)
         cache = LayerCache(layer_id=self.layer_id, host_tensors=tensors,
                            num_rows=self.gpu_cache_slots,
                            max_copy=get_gpu_expert_cache_max_copy(),
                            score_decay=get_gpu_expert_cache_score_decay(), fp8=fp8,
-                           device=device)
+                           host_numa_node=node, device=device)
         buffers = FusedMoE.gpu_cache_buffers
         if buffers is None or buffers.max_rows < self.max_num_seqs:
             FusedMoE.gpu_cache_buffers = ForwardBuffers(
@@ -2470,9 +2474,11 @@ class FusedMoE(torch.nn.Module):
         logger.info(
             "LK_GPU_CACHE_SLOTS: layer %s: %d VRAM rows (%.2f GiB, %s), up to %d misses "
             "admitted per forward, %d experts pinned on host (%.2f GiB, checkpoint + row "
-            "layouts)", self.layer_id, cache.num_rows,
-            cache.num_rows * cache.row_bytes() / 2**30, "W4A8" if fp8 else "W4A16",
-            cache.copy_row.numel(), cache.num_experts, cache.host_bytes() / 2**30)
+            "layouts), row source on NUMA node %s (first pages on %s)", self.layer_id,
+            cache.num_rows, cache.num_rows * cache.row_bytes() / 2**30,
+            "W4A8" if fp8 else "W4A16", cache.copy_row.numel(), cache.num_experts,
+            cache.host_bytes() / 2**30, node if node >= 0 else "process policy",
+            cache.row_source_nodes)
 
     def _gpu_cache_forward(self, hidden_states, topk_weights, topk_ids):
         from sglang.srt.layers.moe.gpu_expert_cache import cache_forward

@@ -21,7 +21,10 @@ the lk_moe pump).
 
 from __future__ import annotations
 
+import ctypes
 import logging
+import mmap
+import os
 import threading
 import time
 from contextlib import contextmanager
@@ -78,26 +81,80 @@ def _to_cutlass_layout(w13, s13, w2, s2, *, fp8: bool):
     return w13_il, s13_il, w2_il, s2_il, residual_bytes(r13), residual_bytes(r2)
 
 
-def _build_row_source(host_tensors, *, fp8: bool, device, chunk: int = 16):
-    """Pinned host copy of every expert in the row layout; ~0.3 GiB VRAM transient."""
+def gpu_numa_node(device) -> int:
+    """NUMA node of the GPU's PCIe device, or -1 when the platform does not report one."""
+    props = torch.cuda.get_device_properties(device)
+    path = (f"/sys/bus/pci/devices/{props.pci_domain_id:04x}:{props.pci_bus_id:02x}:"
+            f"{props.pci_device_id:02x}.0/numa_node")
+    try:
+        with open(path) as f:
+            return int(f.read())
+    except (OSError, ValueError):
+        return -1
+
+
+# x86_64 / aarch64 syscall numbers of mbind(2) and get_mempolicy(2).
+_SYSCALLS = {"x86_64": (237, 239), "aarch64": (235, 236)}
+_MPOL_PREFERRED = 1
+_MPOL_F_NODE, _MPOL_F_ADDR = 1, 2
+
+
+def _pinned_on_node(nbytes: int, node: int):
+    """(uint8 tensor, keepalive, node of its first page) of pinned host memory whose
+    pages prefer ``node``; with ``node`` < 0 the process policy decides.
+
+    The serving processes run under ``numactl --interleave=all`` when LK is on, so a
+    plain pinned allocation spreads every expert over both sockets.
+    """
+    calls = _SYSCALLS.get(os.uname().machine)
+    if node < 0 or calls is None:
+        return torch.empty(nbytes, dtype=torch.uint8, pin_memory=True), None, -1
+    mbind, get_mempolicy = calls
+    libc = ctypes.CDLL(None, use_errno=True)
+    region = mmap.mmap(-1, nbytes, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS)
+    view = (ctypes.c_char * nbytes).from_buffer(region)
+    addr = ctypes.addressof(view)
+    mask = ctypes.c_ulong(1 << node)
+    if libc.syscall(mbind, ctypes.c_void_p(addr), ctypes.c_ulong(nbytes), _MPOL_PREFERRED,
+                    ctypes.byref(mask), ctypes.c_ulong(64), 0) != 0:
+        logger.warning("gpu-expert-cache: mbind to NUMA node %d failed (errno %d); "
+                       "host rows keep the process policy", node, ctypes.get_errno())
+    # Pinning faults every page in, so they land where the policy says.
+    err = torch.cuda.cudart().cudaHostRegister(addr, nbytes, 0)
+    if int(err) != 0:
+        raise RuntimeError(f"cudaHostRegister({nbytes} bytes) failed: {err}")
+    placed = ctypes.c_int(-1)
+    libc.syscall(get_mempolicy, ctypes.byref(placed), None, ctypes.c_ulong(0),
+                 ctypes.c_void_p(addr), _MPOL_F_NODE | _MPOL_F_ADDR)
+    return torch.frombuffer(region, dtype=torch.uint8), (region, view), placed.value
+
+
+def _build_row_source(host_tensors, *, fp8: bool, node: int, device, chunk: int = 16):
+    """Pinned host copy of every expert in the row layout on NUMA ``node`` (-1: process
+    policy), with its keepalives and placed nodes; ~0.3 GiB VRAM transient."""
     num_experts = host_tensors[0].shape[0]
     first = _to_cutlass_layout(*(t[:1].to(device) for t in host_tensors), fp8=fp8)
-    out = [torch.empty((num_experts, *f.shape[1:]), dtype=torch.uint8, pin_memory=True)
-           for f in first]
+    out, keep, placed = [], [], []
+    for f in first:
+        shape = (num_experts, *f.shape[1:])
+        flat, alive, where = _pinned_on_node(int(torch.Size(shape).numel()), node)
+        out.append(flat.view(shape))
+        keep.append(alive)
+        placed.append(where)
     for start in range(0, num_experts, chunk):
         stop = min(num_experts, start + chunk)
         converted = _to_cutlass_layout(
             *(t[start:stop].to(device) for t in host_tensors), fp8=fp8)
         for dst, src in zip(out, converted):
             dst[start:stop].copy_(src)
-    return out
+    return out, keep, placed
 
 
 class LayerCache:
     """VRAM rows, the expert/row tables, scores and counters of one layer."""
 
     def __init__(self, *, layer_id: int, host_tensors, num_rows: int, max_copy: int,
-                 score_decay: float, fp8: bool, device):
+                 score_decay: float, fp8: bool, host_numa_node: int, device):
         # Lazy: park() must stay importable without the lk_moe wheel.
         from sglang.kernels.ops.moe.lk_verify_uva import (
             MISS_BUCKETS,
@@ -114,7 +171,9 @@ class LayerCache:
         # Checkpoint layout, read in place over UVA for misses that are not admitted.
         self.experts = register_host_experts(w13, s13, w2, s2, device=device)
         self._host = host_tensors
-        self._row_source = _build_row_source(host_tensors, fp8=fp8, device=device)
+        # The source of every admission copy: on the GPU's own socket when known.
+        self._row_source, self._row_source_keepalive, self.row_source_nodes = _build_row_source(
+            host_tensors, fp8=fp8, node=host_numa_node, device=device)
         self.slabs = [
             torch.empty((self.num_rows, *t.shape[1:]), dtype=torch.uint8, device=device)
             for t in self._row_source

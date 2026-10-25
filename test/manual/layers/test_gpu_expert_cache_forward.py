@@ -59,8 +59,12 @@ def setup(request):
         torch.randint(119, 123, (E, H, I // 32), dtype=torch.uint8),
     )
     fp8 = request.param == "fp8"
+    from sglang.srt.layers.moe.gpu_expert_cache import gpu_numa_node
+
+    # The GPU-local node exercises the NUMA-bound host rows (-1 on single-node hosts).
     cache = LayerCache(layer_id=0, host_tensors=experts, num_rows=R, max_copy=C,
-                       score_decay=0.99, fp8=fp8, device="cuda")
+                       score_decay=0.99, fp8=fp8, host_numa_node=gpu_numa_node("cuda"),
+                       device="cuda")
     buffers = ForwardBuffers(num_experts=E, max_rows=ROWS, top_k=K, hidden=H,
                              intermediate=I, device="cuda")
     params = MoeParams(swiglu_limit=torch.full((R,), LIMIT, device="cuda"), limit=LIMIT,
