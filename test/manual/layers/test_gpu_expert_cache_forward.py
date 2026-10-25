@@ -42,10 +42,14 @@ def _reference(x, ids, weights, w13, s13, w2, s2, limit):
 E, H, I, K, ROWS, S, P, LIMIT = 12, 512, 256, 4, 9, 6, 2, 10.0
 
 
+# Registered host memory is never unregistered: a cache built on addresses a freed
+# cache had registered fails with CUDA error 712, so every cache here stays alive.
+_alive = []
+
+
 @pytest.fixture(scope="module", params=["bf16", "fp8"])
 def setup(request):
-    """One cache per precision for the module: registered host memory is never
-    unregistered, so another cache on the same addresses would fail (CUDA error 712)."""
+    """One cache per precision, kept for the whole process."""
     from sglang.srt.layers.moe.gpu_expert_cache import ForwardBuffers, LayerCache, MoeParams
 
     torch.manual_seed(3)
@@ -63,6 +67,7 @@ def setup(request):
     params = MoeParams(swiglu_limit=torch.full((S + P,), LIMIT, device="cuda"), limit=LIMIT,
                        tp_size=1, tp_rank=0,
                        fc2_act_scale=torch.ones((), device="cuda") if fp8 else None)
+    _alive.append((experts, cache, buffers, params))
     return experts, cache, buffers, params
 
 
@@ -115,7 +120,12 @@ def test_hits_staged_and_overflow_misses_match_the_reference(setup, graph):
 def test_prefetched_experts_are_served_without_a_copy(setup):
     """A prefetch with layer L+1's router stages its experts; the forward then copies
     nothing for them and still matches the reference."""
-    from sglang.kernels.ops.moe.lk_verify_uva import STAT_PREFETCHED, STAT_STAGE_COPIED, STAT_STAGE_KEPT
+    from sglang.kernels.ops.moe.lk_verify_uva import (
+        STAT_PREFETCH_USED,
+        STAT_PREFETCHED,
+        STAT_STAGE_COPIED,
+        STAT_STAGE_KEPT,
+    )
     from sglang.srt.layers.moe.gpu_expert_cache import (
         PrefetchTarget,
         _prefetch_targets,
@@ -125,14 +135,16 @@ def test_prefetched_experts_are_served_without_a_copy(setup):
 
     experts, cache, buffers, params = setup
     cache.stage_expert.fill_(-1)  # earlier tests may have left these experts staged
+    cache.row_pending.zero_()
     # Two non-slotted experts that a router rigged to pick them predicts for every row.
     wanted = [S, S + 1]
     gate = torch.zeros(E, H, device="cuda")
     bias = torch.zeros(E, device="cuda")
     bias[wanted] = 10.0
-    register_prefetch_target(1, PrefetchTarget(
+    # Target key = the cache's layer id (0), so its forward is also the last prefetched one.
+    register_prefetch_target(cache.layer_id, PrefetchTarget(
         cache=cache, gate_weight=gate, correction_bias=bias, scoring_func="sqrtsoftplus",
-        top_k=2, ep_rank=0, programs=8))
+        top_k=2, ep_rank=0, programs=8, max_experts=P))
     try:
         ids, x, weights = _routes()
         ids[:, :2] = torch.tensor(wanted, dtype=torch.int32)
@@ -140,13 +152,13 @@ def test_prefetched_experts_are_served_without_a_copy(setup):
         ids[:, 3] = torch.where(ids[:, 3] == ids[:, 2], (ids[:, 2] + 1) % S, ids[:, 3])
         expected = _reference(x, ids, weights, *experts, LIMIT)
         stats0 = cache.stats.clone()
-        prefetch_next_layer(0, x.cuda(), buffers)
-        assert cache.prefetch_issued
+        prefetch_next_layer(cache.layer_id - 1, x.cuda(), buffers)
+        assert cache.prefetch_issued and buffers.prefetch_outstanding
         out = _run(cache, buffers, params, ids, x, weights, graph=True)
-        assert not cache.prefetch_issued
+        assert not cache.prefetch_issued and not buffers.prefetch_outstanding
         delta = (cache.stats - stats0).cpu()
-        assert int(delta[STAT_PREFETCHED]) == 2
+        assert int(delta[STAT_PREFETCHED]) == 2 and int(delta[STAT_PREFETCH_USED]) == 2
         assert int(delta[STAT_STAGE_KEPT]) == 2 and int(delta[STAT_STAGE_COPIED]) == 0
         _close(out, expected, cache.fp8)
     finally:
-        _prefetch_targets.pop(1)
+        _prefetch_targets.pop(cache.layer_id)

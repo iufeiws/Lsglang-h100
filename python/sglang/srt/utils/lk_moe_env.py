@@ -202,6 +202,13 @@ def get_gpu_expert_cache_prefetch_programs() -> int:
     return get_int_env_var("LK_GPU_CACHE_PREFETCH_CTAS", 32)
 
 
+def get_gpu_expert_cache_prefetch_max() -> int:
+    # Most experts one prefetch copies (the most-voted predictions first). The
+    # 788fe82c run prefetched ~3 experts per on-demand copy; mispredictions only cost
+    # PCIe bandwidth now, but that bandwidth is shared. Arbitrary default; not tuned.
+    return get_int_env_var("LK_GPU_CACHE_PREFETCH_MAX", 2)
+
+
 def get_gpu_expert_cache_policy() -> dict:
     # Residency thread knobs. At decay 0.8 / 4 swaps / gain 1.5 the H100 run swapped
     # ~1.2 GB/s at 96% hit, contending with staging copies for PCIe; these slower

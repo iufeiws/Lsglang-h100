@@ -110,6 +110,7 @@ logger = logging.getLogger(__name__)
 from sglang.srt.utils.lk_moe_env import (
     get_gpu_expert_cache_policy,
     get_gpu_expert_cache_precision,
+    get_gpu_expert_cache_prefetch_max,
     get_gpu_expert_cache_prefetch_programs,
     get_gpu_expert_cache_slots,
     get_gpu_expert_cache_staging,
@@ -2480,7 +2481,8 @@ class FusedMoE(torch.nn.Module):
             register_prefetch_target(self.layer_id, PrefetchTarget(
                 cache=cache, gate_weight=gate.weight,
                 correction_bias=gate.e_score_correction_bias, scoring_func=scoring_func,
-                top_k=self.top_k, ep_rank=self.moe_ep_rank, programs=programs))
+                top_k=self.top_k, ep_rank=self.moe_ep_rank, programs=programs,
+                max_experts=get_gpu_expert_cache_prefetch_max()))
         CacheManager.register(cache, device=device, **get_gpu_expert_cache_policy())
         self._gpu_cache = cache
         # Kept alive: the miss kernel reads them in place over UVA.

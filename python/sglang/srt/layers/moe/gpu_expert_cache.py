@@ -147,6 +147,7 @@ class LayerCache:
             MISS_BUCKETS,
             STAT_COUNT,
             register_host_experts,
+            stage_items_per_row,
         )
 
         w13, s13, w2, s2 = host_tensors
@@ -176,8 +177,15 @@ class LayerCache:
         self.stage_dst = torch.tensor([slab[self.num_slots].data_ptr() for slab in self.slabs],
                                       dtype=torch.int64, device=device)
         # Expert held by each staging row (-1: none); survives across forwards.
-        self.stage_expert = torch.full((max(num_staging, 1),), -1, dtype=torch.int32,
-                                       device=device)
+        rows = max(num_staging, 1)
+        self.stage_expert = torch.full((rows,), -1, dtype=torch.int32, device=device)
+        # Rows a prefetch is filling, and their finished copy items (of items_per_row).
+        self.row_pending = torch.zeros(rows, dtype=torch.int32, device=device)
+        self.row_count = torch.zeros(rows, dtype=torch.int32, device=device)
+        self.items_per_row = stage_items_per_row(
+            num_tensors=len(self._slot_source), max_words=self.max_words)
+        # Recorded on the prefetch stream once this layer's prefetch rows are assigned.
+        self.prefetch_assigned = torch.cuda.Event()
         self.prefetch_issued = False
         self.slot_owner = [-1] * self.num_slots
         # Pinned mirror of slot_of; written only while no H2D from it is pending.
@@ -356,6 +364,7 @@ class CacheManager:
     def _log(self, stats, seconds: float) -> None:
         from sglang.kernels.ops.moe.lk_verify_uva import (
             STAT_OVERFLOW,
+            STAT_PREFETCH_USED,
             STAT_PREFETCHED,
             STAT_ROUTES,
             STAT_SLOT_HITS,
@@ -370,12 +379,14 @@ class CacheManager:
         swap_mb = stats["swaps"] * (self._layers[0].expert_bytes() if self._layers else 0) / 2**20
         logger.info(
             "[gpu-expert-cache] %d layers, last %.0fs: graph routes=%d slot-hit=%.1f%% | "
-            "missed experts: staged-kept=%d copied=%d overflow(UVA)=%d prefetched=%d | "
+            "missed experts: staged-kept=%d copied=%d overflow(UVA)=%d prefetched=%d "
+            "(used %d) | "
             "swaps=%d (%.0f MiB/s) | all routes hit=%.1f%%",
             len(self._layers), seconds, routes,
             100 * int(total[STAT_SLOT_HITS]) / max(routes, 1),
             int(total[STAT_STAGE_KEPT]), int(total[STAT_STAGE_COPIED]),
             int(total[STAT_OVERFLOW]), int(total[STAT_PREFETCHED]),
+            int(total[STAT_PREFETCH_USED]),
             stats["swaps"], swap_mb / max(seconds, 1e-9),
             100 * stats["resident"] / max(stats["routes"], 1))
         forwards = int(miss_hist.sum())
@@ -441,6 +452,8 @@ class ForwardBuffers:
         # (mark, free_rows, copy_expert): the main and the prefetch stream each own one.
         self.main_set = scratch_set()
         self.prefetch_set = scratch_set()
+        # A prefetch was issued in this forward and the prefetch stream is not joined yet.
+        self.prefetch_outstanding = False
 
 
 class MoeParams(msgspec.Struct, frozen=True):
@@ -455,7 +468,7 @@ class PrefetchTarget:
     """What layer L needs to fetch layer L+1's predicted experts: its router and cache."""
 
     def __init__(self, *, cache: LayerCache, gate_weight, correction_bias, scoring_func: str,
-                 top_k: int, ep_rank: int, programs: int):
+                 top_k: int, ep_rank: int, programs: int, max_experts: int):
         self.cache = cache
         self.gate_weight = gate_weight
         self.correction_bias = correction_bias
@@ -463,6 +476,7 @@ class PrefetchTarget:
         self.top_k = top_k
         self.expert_offset = ep_rank * cache.num_experts
         self.programs = programs
+        self.max_experts = max_experts
 
 
 _prefetch_targets: dict[int, PrefetchTarget] = {}
@@ -490,9 +504,13 @@ def _predict_local_experts(target: PrefetchTarget, hidden_states):
 
 
 def prefetch_next_layer(layer_id: int, hidden_states, buffers: ForwardBuffers) -> None:
-    """Graph path of layer ``layer_id``: start copying layer ``layer_id + 1``'s predicted
-    misses into its staging rows on the prefetch stream; that layer joins the stream."""
-    from sglang.kernels.ops.moe.lk_verify_uva import assign_slots, stage_copy
+    """Graph path of layer ``layer_id``: start copying layer ``layer_id + 1``'s most-voted
+    predicted misses into its staging rows on the prefetch stream.
+
+    Layer ``layer_id + 1`` waits only for the row assignment and then for the rows it
+    actually reads or refills; the stream is joined after the last cache layer.
+    """
+    from sglang.kernels.ops.moe.lk_verify_uva import prefetch_assign, stage_copy
 
     target = _prefetch_targets.get(layer_id + 1)
     if (target is None or hidden_states.shape[0] > buffers.max_rows
@@ -504,16 +522,19 @@ def prefetch_next_layer(layer_id: int, hidden_states, buffers: ForwardBuffers) -
     stream.wait_stream(torch.cuda.current_stream())
     with torch.cuda.stream(stream):
         predicted = _predict_local_experts(target, hidden_states)
-        mark, free_rows, copy_expert = buffers.prefetch_set
-        assign_slots(topk_ids=predicted, slot_of=cache.slot_of, mark=mark,
-                     free_rows=free_rows, stage_expert=cache.stage_expert,
-                     copy_expert=copy_expert, slot_ids=None, miss_tab=None, hist=None,
-                     stats=cache.stats, miss_hist=None, num_slots=cache.num_slots,
-                     num_staging=cache.num_staging, route=False)
+        votes, free_rows, copy_expert = buffers.prefetch_set
+        prefetch_assign(topk_ids=predicted, slot_of=cache.slot_of, votes=votes,
+                        free_rows=free_rows, stage_expert=cache.stage_expert,
+                        row_pending=cache.row_pending, row_count=cache.row_count,
+                        copy_expert=copy_expert, stats=cache.stats,
+                        num_staging=cache.num_staging, max_prefetch=target.max_experts)
+        cache.prefetch_assigned.record(stream)
         stage_copy(copy_expert=copy_expert, src_ptrs=cache.stage_src, dst_ptrs=cache.stage_dst,
                    words=cache.stage_words, num_staging=cache.num_staging,
-                   max_words=cache.max_words, num_programs=target.programs)
+                   max_words=cache.max_words, num_programs=target.programs,
+                   row_count=cache.row_count)
     cache.prefetch_issued = True
+    buffers.prefetch_outstanding = True
 
 
 def _cutlass(cache: LayerCache, x, slot_ids, weights, params: MoeParams):
@@ -578,17 +599,18 @@ def _graph_forward(cache, *, x, topk_ids, topk_weights, buffers: ForwardBuffers,
     assert n <= buffers.slot_ids.numel(), (rows, buffers.max_rows)
     main = torch.cuda.current_stream()
     if cache.prefetch_issued:
-        # The prefetch writes staging rows this forward reads or may refill.
-        main.wait_stream(buffers.prefetch_stream)
+        # The row assignment only; assign_slots waits for the rows it uses.
+        main.wait_event(cache.prefetch_assigned)
         cache.prefetch_issued = False
     slot_ids, miss_tab = buffers.slot_ids[:n], buffers.miss_tab[:n]
     gout_part = buffers.gout_part[:n]
     mark, free_rows, copy_expert = buffers.main_set
     assign_slots(topk_ids=topk_ids, slot_of=cache.slot_of, mark=mark, free_rows=free_rows,
-                 stage_expert=cache.stage_expert, copy_expert=copy_expert,
+                 stage_expert=cache.stage_expert, row_pending=cache.row_pending,
+                 row_count=cache.row_count, copy_expert=copy_expert,
                  slot_ids=slot_ids, miss_tab=miss_tab, hist=cache.hist, stats=cache.stats,
                  miss_hist=cache.miss_hist, num_slots=cache.num_slots,
-                 num_staging=cache.num_staging)
+                 num_staging=cache.num_staging, items_per_row=cache.items_per_row)
     side_stream = buffers.side_stream
     side_stream.wait_stream(main)
     with torch.cuda.stream(side_stream):
@@ -606,6 +628,10 @@ def _graph_forward(cache, *, x, topk_ids, topk_weights, buffers: ForwardBuffers,
                    num_programs=_ON_DEMAND_COPY_PROGRAMS)
     hits = _cutlass(cache, x, slot_ids.view(rows, top_k), topk_weights, params)
     main.wait_stream(side_stream)
+    if buffers.prefetch_outstanding and cache.layer_id + 1 not in _prefetch_targets:
+        # Last prefetched layer: join the prefetch stream (graph capture needs it).
+        main.wait_stream(buffers.prefetch_stream)
+        buffers.prefetch_outstanding = False
     return gout_part.view(rows, top_k, -1).sum(dim=1).add_(hits)
 
 
@@ -639,6 +665,7 @@ def _eager_forward(cache, *, x, topk_ids, topk_weights, params: MoeParams):
     if missing:
         # The rows now hold the last group, not what graph forwards last left there.
         cache.stage_expert.fill_(-1)
+        cache.row_pending.zero_()
     return out
 
 
