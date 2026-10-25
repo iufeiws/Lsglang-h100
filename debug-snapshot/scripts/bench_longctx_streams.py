@@ -104,6 +104,7 @@ def main():
     ap.add_argument("--temp", type=float, default=0.7)
     ap.add_argument("--timeout", type=float, default=3600)
     ap.add_argument("--tag", default="longctx")
+    ap.add_argument("--vram-interval", type=float, default=5.0, help="显存采样间隔 (s)")
     ap.add_argument("--api-key", default="")
     ap.add_argument("--outdir", default="/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_slots128")
     args = ap.parse_args()
@@ -112,7 +113,7 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
     stem = f"bench_{args.tag}_{datetime.now(CST).strftime('%Y%m%d_%H%M%S')}"
     vram_path = os.path.join(args.outdir, stem + ".vram.csv")
-    sampler = VramSampler(vram_path); sampler.start()
+    sampler = VramSampler(vram_path, interval=args.vram_interval); sampler.start()
 
     prompts = [make_prompt(i, args.prompt_chars) for i in range(args.k)]
     results, lock = [], threading.Lock()
@@ -144,6 +145,7 @@ def main():
                         r.get("err") or ""])
     summary = dict(tag=args.tag, started=now_iso(), k=args.k, prompt_chars=args.prompt_chars,
                    max_tokens=args.max_tokens, temperature=args.temp, wall_s=wall,
+                   vram_interval_s=args.vram_interval, vram_samples=len(sampler.rows),
                    prompt_tokens_per_stream=[r.get("prompt_tokens") for r in sorted(results, key=lambda x: x["i"])],
                    n_ok=len(ok), n_err=len(results) - len(ok),
                    errors=[r["err"] for r in results if r["err"]],
