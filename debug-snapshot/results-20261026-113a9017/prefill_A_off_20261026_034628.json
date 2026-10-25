@@ -1,0 +1,24 @@
+{
+ "tag": "A_off",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16684,
+ "runs": [
+  {
+   "case": "long",
+   "salt": 0,
+   "wall_s": 2.6219072341918945,
+   "prompt_tokens": 16688,
+   "tok_s": 6364.832356528226,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "salt": 0,
+   "wall_s": 0.46570777893066406,
+   "prompt_tokens": 13,
+   "tok_s": 27.914500440276043,
+   "completion_tokens": 1
+  }
+ ]
+}

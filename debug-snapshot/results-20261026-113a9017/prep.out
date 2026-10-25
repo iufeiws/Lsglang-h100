@@ -1,0 +1,28 @@
+### 2026-10-26_03:17:57 0/5 快照上一轮 (788fe82c W4A8) 的 serve 日志尾部
+  行数 2728
+### 2026-10-26_03:17:57 1/5 停服务
+  GPU4-7 已释放 (t=30s)
+### 2026-10-26_03:19:58 2/5 切到 113a9017
+Switched to a new branch 'diagnose/113a9017-logs-20261026'
+113a9017e4 GPU expert cache: prefetch no longer blocks the next layer
+### 2026-10-26_03:19:58 3/5 部署 4 个 .py
+OK   kernels/ops/moe/lk_verify_uva.py  md5=8c1fe9932493eb9adf2f219b206010a3
+OK   srt/layers/moe/fused_moe_triton/layer.py  md5=d393443bd0231644346e278e0fdff3da
+OK   srt/layers/moe/gpu_expert_cache.py  md5=ee51dd6e967312365b47b09ea5a6ac0e
+OK   srt/utils/lk_moe_env.py  md5=a179eaeaf25050e6d4dd31e5f91e9eee
+--- __pycache__ 残留检查 (应为空) ---
+deploy done: tag=788fe82c0e -> 113a9017e4
+### 2026-10-26_03:19:58 4/5 全树核对
+repo .py files: 4511   differing: 0   missing in deploy: 94
+### 2026-10-26_03:20:02 5/5 单测
+--- 整文件 forward 测试 ---
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/cute_dsl/availability.py:136: DeprecationWarning: Arch from arch.py is deprecated. Use Arch from enums.py instead.
+    from cutlass.base_dsl.arch import Arch
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+6 passed, 19 warnings in 24.74s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+--- lk_verify_uva ---
+.............                                                            [100%]
+13 passed in 18.08s
+### 2026-10-26_03:20:50 完成

@@ -1,0 +1,2 @@
+stream,ttft,n_tok_used,events,n_content,n_reasoning,decode_tok_s,ms_per_step,wall_s,total_tok_s,prompt_tokens,completion_tokens,finish,err
+0,0.6060042381286621,1000,441,441,0,101.36085347958588,9.86574171064375,10.462665557861328,95.57793799961716,34,1000,length,

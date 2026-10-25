@@ -1,0 +1,72 @@
+==============================================================
+ 停止 Lsglang serve · DeepSeek-V4.1-Flash-1017 · TP4 (端口 18010)
+ conf      : /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.conf
+ PID 文件  : /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+ 策略      : SIGTERM(进程组) → 等 60s → SIGKILL(进程组)
+==============================================================
+[2026-10-26 04:14:36] PID 50381 cmdline: /mnt/SSD01/models/.llm-env/Lsglang/env/bin/python /mnt/SSD01/models/.llm-env/Lsglang/env/bin/sglang serve --model /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash
+[2026-10-26 04:14:36] 归属校验通过 ✓
+[2026-10-26 04:14:36] 将向进程组 -50381 发信号 (setsid 子会话, PGID==PID); 成员数 7
+[2026-10-26 04:14:36] 发送 SIGTERM 到 进程组 -50381…
+[2026-10-26 04:14:36]   等待退出… 0s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:14:41]   等待退出… 5s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:14:46]   等待退出… 10s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:14:51]   等待退出… 15s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:14:56]   等待退出… 20s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:15:02]   等待退出… 25s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:15:07]   等待退出… 30s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:15:12]   等待退出… 35s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:15:17]   等待退出… 40s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:15:22]   等待退出… 45s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:15:27]   等待退出… 50s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:15:32]   等待退出… 55s / 60s (PID 50381 RSS=1518 MiB)
+[2026-10-26 04:15:37] 等满 60s 仍未退出 → SIGKILL
+[2026-10-26 04:15:38] SIGKILL 后已退出 (可能残留部分显存, 请用 ./status.sh 复核)
+[2026-10-26 04:15:38] ⚠ 同进程组仍有残留 (可能是我方 worker/scheduler, 请人工确认):
+    52985 50381 [sglang::schedul] <defunct>
+    52986 50381 [sglang::schedul] <defunct>
+    52987 50381 [sglang::schedul] <defunct>
+[2026-10-26 04:15:38] 已删除 PID 文件: /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+[2026-10-26 04:15:39] 端口 18010 已释放 ✓
+[2026-10-26 04:15:39] 日志尾部 (/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_035035.log):
+    [2026-10-26 04:13:08] INFO:     127.0.0.1:52830 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+    [2026-10-26 04:13:09 TP0 EP0] Prefill batch, #new-seq: 1, #new-token: 271, #cached-token: 0, full token usage: 0.00, swa token usage: 0.01, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 268.08
+    [2026-10-26 04:13:09 TP0 EP0] Decode batch, #running-req: 1, #full token: 512, full token usage: 0.00, #swa token: 512, swa token usage: 0.01, accept len: 4.28, accept rate: 0.66, cuda graph: True, gen throughput (token/s): 38.36, #queue-req: 0
+    [2026-10-26 04:13:09] INFO:     127.0.0.1:52844 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+    [2026-10-26 04:13:11 TP0 EP0] Prefill batch, #new-seq: 1, #new-token: 38, #cached-token: 0, full token usage: 0.00, swa token usage: 0.02, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 22.84
+    [2026-10-26 04:13:11] INFO:     127.0.0.1:39428 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+    [2026-10-26 04:13:11 TP0 EP0] Prefill batch, #new-seq: 3, #new-token: 107, #cached-token: 0, full token usage: 0.00, swa token usage: 0.02, #running-req: 1, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 490.15
+    [2026-10-26 04:13:11] INFO:     127.0.0.1:39432 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+    [2026-10-26 04:13:11] INFO:     127.0.0.1:39442 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+    [2026-10-26 04:13:11] INFO:     127.0.0.1:39450 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+    [2026-10-26 04:13:15 TP0 EP0] Decode batch, #running-req: 4, #full token: 1024, full token usage: 0.00, #swa token: 1024, swa token usage: 0.02, accept len: 2.93, accept rate: 0.39, cuda graph: True, gen throughput (token/s): 73.06, #queue-req: 0
+    [2026-10-26 04:13:17 TP0 EP0] Decode batch, #running-req: 4, #full token: 1536, full token usage: 0.00, #swa token: 1536, swa token usage: 0.03, accept len: 2.91, accept rate: 0.38, cuda graph: True, gen throughput (token/s): 172.80, #queue-req: 0
+    [2026-10-26 04:13:19 TP0 EP0] Decode batch, #running-req: 4, #full token: 2048, full token usage: 0.00, #swa token: 2048, swa token usage: 0.03, accept len: 2.61, accept rate: 0.32, cuda graph: True, gen throughput (token/s): 231.01, #queue-req: 0
+    [2026-10-26 04:13:21 TP0 EP0] Decode batch, #running-req: 4, #full token: 2048, full token usage: 0.00, #swa token: 2048, swa token usage: 0.03, accept len: 2.33, accept rate: 0.27, cuda graph: True, gen throughput (token/s): 214.57, #queue-req: 0
+    [2026-10-26 04:13:22 TP0 EP0] Decode batch, #running-req: 2, #full token: 1280, full token usage: 0.00, #swa token: 1024, swa token usage: 0.02, accept len: 2.25, accept rate: 0.25, cuda graph: True, gen throughput (token/s): 190.51, #queue-req: 0
+    [2026-10-26 04:13:23 TP0 EP0] Decode batch, #running-req: 1, #full token: 768, full token usage: 0.00, #swa token: 512, swa token usage: 0.01, accept len: 1.90, accept rate: 0.18, cuda graph: True, gen throughput (token/s): 101.09, #queue-req: 0
+    [2026-10-26 04:13:28 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=340716 slot-hit=95.3% | missed experts: staged-kept=6052 copied=3718 overflow(UVA)=2020 prefetched=7539 (used 2871) | swaps=965 (288 MiB/s) | all routes hit=96.0%
+    [2026-10-26 04:13:28 TP1 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=1 p90=5 p99=9 p99.9=14; > staging(4): 10.96% of 7089; histogram [(0, 3276), (1, 1036), (2, 840), (3, 694), (4, 466), (5, 283), (6, 194), (7, 119), (8, 66), (9, 51), (10, 24), (11, 18), (12, 10), (13, 4), (14, 4), (15, 2), (16, 1), (17, 1)]
+    [2026-10-26 04:13:28 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=310005 slot-hit=95.1% | missed experts: staged-kept=5983 copied=3669 overflow(UVA)=1586 prefetched=8617 (used 2882) | swaps=937 (278 MiB/s) | all routes hit=96.0%
+    [2026-10-26 04:13:28 TP3 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=1 p90=4 p99=8 p99.9=12; > staging(4): 10.00% of 7060; histogram [(0, 3188), (1, 1097), (2, 932), (3, 681), (4, 456), (5, 309), (6, 177), (7, 105), (8, 55), (9, 17), (10, 17), (11, 16), (12, 6), (13, 2), (14, 1), (17, 1)]
+    [2026-10-26 04:13:28 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=340155 slot-hit=95.3% | missed experts: staged-kept=6031 copied=3656 overflow(UVA)=2014 prefetched=7485 (used 2838) | swaps=978 (292 MiB/s) | all routes hit=96.0%
+    [2026-10-26 04:13:28 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=1 p90=5 p99=9 p99.9=14; > staging(4): 10.85% of 7060; histogram [(0, 3268), (1, 1044), (2, 830), (3, 689), (4, 463), (5, 285), (6, 178), (7, 121), (8, 73), (9, 42), (10, 19), (11, 19), (12, 16), (13, 5), (14, 2), (15, 5), (17, 1)]
+    [2026-10-26 04:13:28 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=310005 slot-hit=95.1% | missed experts: staged-kept=5959 copied=3634 overflow(UVA)=1569 prefetched=8658 (used 2853) | swaps=975 (289 MiB/s) | all routes hit=96.0%
+    [2026-10-26 04:13:28 TP2 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=1 p90=4 p99=8 p99.9=12; > staging(4): 9.90% of 7060; histogram [(0, 3196), (1, 1124), (2, 906), (3, 679), (4, 456), (5, 306), (6, 174), (7, 101), (8, 57), (9, 21), (10, 18), (11, 13), (12, 6), (14, 2), (16, 1)]
+    [2026-10-26 04:13:58 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 slot-hit=0.0% | missed experts: staged-kept=0 copied=0 overflow(UVA)=0 prefetched=0 (used 0) | swaps=0 (0 MiB/s) | all routes hit=0.0%
+    [2026-10-26 04:13:58 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 slot-hit=0.0% | missed experts: staged-kept=0 copied=0 overflow(UVA)=0 prefetched=0 (used 0) | swaps=0 (0 MiB/s) | all routes hit=0.0%
+    [2026-10-26 04:13:58 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 slot-hit=0.0% | missed experts: staged-kept=0 copied=0 overflow(UVA)=0 prefetched=0 (used 0) | swaps=0 (0 MiB/s) | all routes hit=0.0%
+    [2026-10-26 04:13:58 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 slot-hit=0.0% | missed experts: staged-kept=0 copied=0 overflow(UVA)=0 prefetched=0 (used 0) | swaps=0 (0 MiB/s) | all routes hit=0.0%
+    [2026-10-26 04:14:28 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 slot-hit=0.0% | missed experts: staged-kept=0 copied=0 overflow(UVA)=0 prefetched=0 (used 0) | swaps=0 (0 MiB/s) | all routes hit=0.0%
+    [2026-10-26 04:14:28 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 slot-hit=0.0% | missed experts: staged-kept=0 copied=0 overflow(UVA)=0 prefetched=0 (used 0) | swaps=0 (0 MiB/s) | all routes hit=0.0%
+    [2026-10-26 04:14:28 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 slot-hit=0.0% | missed experts: staged-kept=0 copied=0 overflow(UVA)=0 prefetched=0 (used 0) | swaps=0 (0 MiB/s) | all routes hit=0.0%
+    [2026-10-26 04:14:29 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 slot-hit=0.0% | missed experts: staged-kept=0 copied=0 overflow(UVA)=0 prefetched=0 (used 0) | swaps=0 (0 MiB/s) | all routes hit=0.0%
+    [2026-10-26 04:14:36] SIGTERM received. signum=None frame=None. Draining requests and shutting down...
+    [2026-10-26 04:14:36] Gracefully exiting... Remaining number of requests 0. Remaining requests remaining_rids=[].
+    [2026-10-26 04:14:36] kill_process_tree called: parent_pid=50381, include_parent=False, pid=50381
+    [2026-10-26 04:14:37] INFO:     Shutting down
+    [2026-10-26 04:14:37] INFO:     Waiting for application shutdown.
+    [2026-10-26 04:14:37] INFO:     Application shutdown complete.
+    [2026-10-26 04:14:37] INFO:     Finished server process [50381]
+    [2026-10-26 04:14:37] kill_process_tree called: parent_pid=50381, include_parent=False, pid=50381
+[2026-10-26 04:15:39] 停止流程结束。

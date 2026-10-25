@@ -1,0 +1,85 @@
+==============================================================
+==============================================================
+ Lsglang serve 【定稿版】· DeepSeek-V4.1-Flash-1017 · TP4 × 4×H100
+==============================================================
+ 模式         : background
+ conf         : /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.conf
+ venv 入口    : /mnt/SSD01/models/.llm-env/Lsglang/env/bin/sglang
+ 权重         : /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017
+ 端点         : http://0.0.0.0:18010
+ GPU(UUID)    : GPU-7561b28f-b049-bbdb-31f8-16efeb06663d,GPU-fb59db94-0e4e-4c4f-8ae5-4d0fdd1e0f0b,GPU-3c5d7267-445c-4679-bce9-503bedd0c920,GPU-3c0f2856-a6e3-b9d5-fd10-a08f55579fff
+ 专家方案     : resident=0-19 (W4A8) + pool=0 槽 (W4A16 等价)
+ 日志         : /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_032323.log
+ PID 文件     : /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+--------------------------------------------------------------
+ Preflight 检查
+--------------------------------------------------------------
+1) 端口 18010
+  [ OK ]   端口 18010 空闲
+2) 依赖文件
+  [ OK ]   sglang 入口存在且可执行: /mnt/SSD01/models/.llm-env/Lsglang/env/bin/sglang
+  [ OK ]   仓库工作树存在; pyproject version=1.6.1, 钉 lk_moe==2.7.1
+  [ OK ]   权重目录存在; config.json 存在; safetensors 分片 48 个
+3) GPU 绑定 (UUID)
+  [ OK ]   UUID GPU-7561b28f-b049-bbdb-31f8-16efeb06663d -> 物理 GPU4 (与期望一致)
+  [ OK ]   UUID GPU-fb59db94-0e4e-4c4f-8ae5-4d0fdd1e0f0b -> 物理 GPU5 (与期望一致)
+  [ OK ]   UUID GPU-3c5d7267-445c-4679-bce9-503bedd0c920 -> 物理 GPU6 (与期望一致)
+  [ OK ]   UUID GPU-3c0f2856-a6e3-b9d5-fd10-a08f55579fff -> 物理 GPU7 (与期望一致)
+  [ OK ]   禁止卡 物理 GPU0 未出现在可见列表中
+  [ OK ]   禁止卡 物理 GPU1 未出现在可见列表中
+4) 目标卡显存占用 (阈值 < 1024 MiB)
+  [ OK ]   物理 GPU4 (GPU-7561b28f-b049-…) 已用 0 MiB — 空闲
+  [ OK ]   物理 GPU5 (GPU-fb59db94-0e4e-…) 已用 0 MiB — 空闲
+  [ OK ]   物理 GPU6 (GPU-3c5d7267-445c-…) 已用 0 MiB — 空闲
+  [ OK ]   物理 GPU7 (GPU-3c0f2856-a6e3-…) 已用 0 MiB — 空闲
+5) CPU / NUMA / 方案一致性自检
+  [ OK ]   逻辑 CPU 192, 物理核 96
+  [ OK ]   LK_THREADS=24 等于 README 公式值 (物理核 96 ÷ 4 卡)
+  [ OK ]   LK_NUMA_INTERLEAVE=1 (host 常驻 464.6 GiB > node1 的 401.8 GiB, 必须开)
+  [ OK ]   LK_MOE_HYBRID_ENABLED=1 (总开关)
+  [ OK ]   SGLANG_DSV4_FP4_DEQUANT 未设 (必需)
+  [ OK ]   未设置 SM8x MARLIN_GROUP32* (SM90 上无效, 已排除)
+--------------------------------------------------------------
+ Preflight: 全部通过
+--------------------------------------------------------------
+[2026-10-26 03:23:42] preflight 通过, 准备启动
+[2026-10-26 03:23:43] GPU 可见: CUDA_VISIBLE_DEVICES=GPU-7561b28f-b049-bbdb-31f8-16efeb06663d,GPU-fb59db94-0e4e-4c4f-8ae5-4d0fdd1e0f0b,GPU-3c5d7267-445c-4679-bce9-503bedd0c920,GPU-3c0f2856-a6e3-b9d5-fd10-a08f55579fff
+[2026-10-26 03:23:46] 已拉起 PID=19237 PGID=19237, 日志: /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_032323.log
+[2026-10-26 03:23:46] PID 记录: /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+[2026-10-26 03:23:46] 等待 /health 就绪 (上限 3600s; 475 GiB 权重从 NFS 冷读 + 上池较慢, 属正常)…
+[2026-10-26 03:23:46]   仍在加载… 剩余约 60 分钟 (日志尾: ==============================================================)
+[2026-10-26 03:23:51]   仍在加载… 剩余约 59 分钟 (日志尾: ==============================================================)
+[2026-10-26 03:24:51]   仍在加载… 剩余约 58 分钟 (日志尾: Multi-thread loading shards:   0% Completed | 0/48 [00:00<?, ?it/s]Multi-thread loading shards:   2% Complet)
+[2026-10-26 03:25:51]   仍在加载… 剩余约 57 分钟 (日志尾: [2026-10-26 03:25:06 TP0 EP0] Finished streaming dequant fp8 wo_a)
+[2026-10-26 03:26:51]   仍在加载… 剩余约 56 分钟 (日志尾: [2026-10-26 03:25:06 TP0 EP0] Finished streaming dequant fp8 wo_a)
+[2026-10-26 03:27:51]   仍在加载… 剩余约 55 分钟 (日志尾: [2026-10-26 03:25:06 TP0 EP0] Finished streaming dequant fp8 wo_a)
+[2026-10-26 03:28:47]   仍在加载… 剩余约 54 分钟 (日志尾: [2026-10-26 03:25:06 TP0 EP0] Finished streaming dequant fp8 wo_a)
+[2026-10-26 03:29:47]   仍在加载… 剩余约 53 分钟 (日志尾: [2026-10-26 03:25:06 TP0 EP0] Finished streaming dequant fp8 wo_a)
+[2026-10-26 03:30:47]   仍在加载… 剩余约 52 分钟 (日志尾: [2026-10-26 03:25:06 TP0 EP0] Finished streaming dequant fp8 wo_a)
+[2026-10-26 03:31:47]   仍在加载… 剩余约 51 分钟 (日志尾: [2026-10-26 03:31:41 TP3 EP1] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, )
+[2026-10-26 03:32:47]   仍在加载… 剩余约 50 分钟 (日志尾: DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:   7%|▋         | 1116/16384 [00)
+[2026-10-26 03:33:48]   仍在加载… 剩余约 49 分钟 (日志尾: [2026-10-26 03:33:47 TP2 EP1] Initialized lk_moe with 192 experts for layer 28 [CPU])
+[2026-10-26 03:34:48]   仍在加载… 剩余约 48 分钟 (日志尾: Multi-thread loading shards:   0% Completed | 0/48 [00:00<?, ?it/s]Multi-thread loading shards:   2% Complet)
+[2026-10-26 03:35:48]   仍在加载… 剩余约 47 分钟 (日志尾: DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:   7%|▋         | 1214/16384 [00)
+[2026-10-26 03:36:48]   仍在加载… 剩余约 46 分钟 (日志尾: [2026-10-26 03:35:52 TP2 EP1] [attn-prewarm] rank=2 buffers ok (input_ids=96 seq_lens=16, per_req_tokens=6))
+[2026-10-26 03:37:48]   仍在加载… 剩余约 45 分钟 (日志尾: [2026-10-26 03:35:52 TP2 EP1] [attn-prewarm] rank=2 buffers ok (input_ids=96 seq_lens=16, per_req_tokens=6))
+[2026-10-26 03:38:48]   仍在加载… 剩余约 44 分钟 (日志尾: [2026-10-26 03:35:52 TP2 EP1] [attn-prewarm] rank=2 buffers ok (input_ids=96 seq_lens=16, per_req_tokens=6))
+[2026-10-26 03:39:49]   仍在加载… 剩余约 43 分钟 (日志尾: [TensorRT-LLM][INFO] Set logger level to INFO)
+[2026-10-26 03:40:49]   仍在加载… 剩余约 42 分钟 (日志尾: [TensorRT-LLM][INFO] Set logger level to INFO)
+[2026-10-26 03:41:49]   仍在加载… 剩余约 41 分钟 (日志尾: [TensorRT-LLM][INFO] Set logger level to INFO)
+[2026-10-26 03:42:49]   仍在加载… 剩余约 40 分钟 (日志尾:   0%|          | 0/12 [00:00<?, ?it/s]Capturing batches (bs=16 avail_mem=7.76 GB):   0%|          | 0/12 [00)
+[2026-10-26 03:43:49]   仍在加载… 剩余约 39 分钟 (日志尾: [2026-10-26 03:43:42 TP2 EP1] Allocating 1.51 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layer)
+[2026-10-26 03:44:49]   仍在加载… 剩余约 38 分钟 (日志尾: [2026-10-26 03:44:49] INFO:     127.0.0.1:53414 - "GET /health HTTP/1.1" 503 Service Unavailable)
+[2026-10-26 03:44:55] ✅ /health 就绪, 耗时约 1269s。端点 http://0.0.0.0:18010
+
+==============================================================
+ 启动后自检 · W4A8 开关是否生效
+==============================================================
+ 日志: /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_032323.log
+--------------------------------------------------------------
+1) 期望串 [LK_GPU_CACHE_SLOTS: layer] 命中行数: 80  (硬门槛 >= 1)
+  [ OK ]   ✓ 建池成功 (EXPECT 串出现)
+           [2026-10-26 03:33:34 TP2 EP1] LK_GPU_CACHE_SLOTS: layer 20: 100 VRAM slots + 4 staging (0.91 GiB, W4A8), 192 experts pinned on host (3.36 GiB, checkpoint + slot layouts), prefetch off
+           [2026-10-26 03:33:34 TP3 EP1] LK_GPU_CACHE_SLOTS: layer 20: 100 VRAM slots + 4 staging (0.91 GiB, W4A8), 192 experts pinned on host (3.36 GiB, checkpoint + slot layouts), prefetch off
+           [2026-10-26 03:33:34 TP1 EP0] LK_GPU_CACHE_SLOTS: layer 20: 100 VRAM slots + 4 staging (0.91 GiB, W4A8), 192 experts pinned on host (3.36 GiB, checkpoint + slot layouts), prefetch off
+grep: write error: Broken pipe

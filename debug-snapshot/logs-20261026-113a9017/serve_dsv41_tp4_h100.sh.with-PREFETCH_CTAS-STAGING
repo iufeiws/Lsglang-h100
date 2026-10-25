@@ -1,0 +1,860 @@
+#!/usr/bin/env bash
+# =============================================================================
+# serve_dsv41_tp4_h100.sh   【定稿版】
+#   DeepSeek-V4.1-Flash-1017 · Lsglang 1.6.1 · TP4 × 4×NVIDIA H100 80GB HBM3 (SM90)
+#   物理卡 4-7 (UUID 固定), NUMA node1, 端口 18010。
+#
+#   前 20 层 (0-19) GPU-resident → W4A8 (FlashInfer SM90 CUTLASS "humming")
+#   后 20 层 (20-39) → 192 槽专家池 (lk_moe 闭源内核, 恒 W4A16 等价)
+#
+# 自包含: 所有 env + `sglang serve` 参数内联; 存在 configs/dsv41_tp4_h100.conf 时载入覆盖。
+# 幂等:   重复执行安全; 已在运行时不会重复拉起 (--restart 先停后起)。
+# 产物:   日志 logs/serve_dsv41_tp4_h100_<ts>.log (软链 serve_dsv41_tp4_h100.log)
+#         PID  logs/serve_dsv41_tp4_h100.pid
+#         快照 configs/dsv41_tp4_h100.effective.<ts>.conf
+# 约束:   任何产物都不写 /tmp。
+# 自检:   就绪后自动校验日志出现 CUTLASS W4A8 且**不出现** CUTLASS W4A16 (见 --self-check)。
+# =============================================================================
+set -Eeuo pipefail
+
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+: "${LSGLANG_ROOT:=/mnt/SSD01/models/.llm-env/Lsglang}"
+CONF="${LSGLANG_CONF:-${LSGLANG_ROOT}/configs/dsv41_tp4_h100.conf}"
+load_conf=""; [[ -f "$CONF" ]] && load_conf="$CONF"
+
+# -----------------------------------------------------------------------------
+# 1. 内置 fallback (= configs/dsv41_tp4_h100.conf 等值; conf 存在时被其覆盖)
+# -----------------------------------------------------------------------------
+builtin_defaults() {
+  LSGLANG_REPO="${LSGLANG_ROOT}/lsglang"
+  LSGLANG_VENV="${LSGLANG_ROOT}/env"
+  MODEL_PATH="/mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017"
+  RUN_DIR="${LSGLANG_ROOT}/logs"
+  CONF_SNAPSHOT_DIR="${LSGLANG_ROOT}/configs"
+
+  HOST="0.0.0.0"; PORT="18010"; SERVED_MODEL_NAME="DeepSeek-V4.1-Flash-1017"
+  CUDA_DEVICE_ORDER="PCI_BUS_ID"
+
+  GPU_UUIDS=(
+    "GPU-7561b28f-b049-bbdb-31f8-16efeb06663d"   # 物理 GPU4
+    "GPU-fb59db94-0e4e-4c4f-8ae5-4d0fdd1e0f0b"   # 物理 GPU5
+    "GPU-3c5d7267-445c-4679-bce9-503bedd0c920"   # 物理 GPU6
+    "GPU-3c0f2856-a6e3-b9d5-fd10-a08f55579fff"   # 物理 GPU7
+  )
+  GPU_EXPECTED_INDEXES=(4 5 6 7)
+  GPU_FORBIDDEN_UUIDS=(
+    "GPU-8cc04831-01e3-5a2b-2ceb-49d32546f4d7"   # 物理 GPU0 (他人占用)
+    "GPU-ade45720-0e9e-3166-f462-c344d740c1eb"   # 物理 GPU1 (他人占用)
+  )
+  GPU_IDLE_MAX_USED_MIB="1024"
+
+  LK_MOE_HYBRID_ENABLED="1"
+  # ========================= <<R2 锁死 · 不要清空>> ==========================
+  # LK_GPU_RESIDENT_MOE_LAYERS 必须非空, 否则两个 W4A8 开关完全失效:
+  #   lk_moe_env.py:289  is_lk_pool_layer() = "非 resident 层" ⇒ 空值 → 全 40 层进池 → resident=0
+  #   mxfp4_flashinfer_cutlass_moe.py:144  non-resident 层直接 return None, 跳过 W4A8 权重准备
+  #   ⇒ resident=0 时日志一行 W4A8 都不会有。
+  # ==========================================================================
+  LK_GPU_RESIDENT_MOE_LAYERS="0-19"
+  LK_GPU_RESIDENT_MOE_LAYERS_SPEC=""
+  LK_POOL_SLOTS="128"    # 2026-10-23 02:1x 用户"动态专家槽改到 128" ⇒ 192→128 (128/384 = 该层 33% 覆盖; slab 预估 ≈11.21 GiB/卡)
+  LK_POOL_LOG="100"
+  LK_POOL_WINDOW="32"
+  LK_POOL_INFLIGHT="16"
+  LK_POOL_STAGE="1"
+  LK_POOL_DECODE=""
+  LK_POOL_DET_SPLIT=""             # 2026-10-25: 原先未声明, 且不在 EXPORT_ENV 白名单 ⇒ conf 写了也不生效
+
+  LK_THREADS="24"                  # README 公式: 物理核 96 ÷ 4 卡 = 24 (模板 48 来自 SM86 参考机)
+  LK_THREAD_BINDING="CPU_CORE"     # README:175 默认 + README:255 调优配方
+  LK_NUMA_INTERLEAVE="1"
+  LK_POWER_SAVING="1"
+  OMP_NUM_THREADS="1"
+
+  LK_GPU_PREFILL_MIN_TOKENS="0"     # 备选A: 关 GPU-prefill 档 ⇒ get_super_chunk_size()=0 ⇒ SuperChunk wrapper 不装
+  LK_GPU_PREFILL_SUB_M="8192"
+  LK_GPU_PREFILL_ENGINE="triton"
+  LK_GPU_PREFETCH_WINDOW="1"
+  LK_GPU_RESERVE_GB="0"
+
+  SPEC_ENABLED="0"                 # dspark 本次不启用 (仓库已 drop obsolete dspark scripts)
+  LK_VERIFY_RESIDENT="0"
+  LK_VERIFY_GEMM=""              # 由 conf 置 false 生效; 空=不导出(用代码默认 true)
+  LK_VERIFY_SKIP_MISS="0"
+  # 2026-10-25: DSPARK verify 的草稿行改由 GPU 经 UVA 读主机专家; 需 LK_VERIFY_RESIDENT=1
+  # 原先这两个键都不在 EXPORT_ENV 白名单 ⇒ conf 写了也不生效
+  LK_VERIFY_UVA=""
+  LK_VERIFY_UVA_PROVIDER=""
+  # 2026-10-25: GPU 专家缓存 (上游 1cf916ebc0)。必须在此给默认值, 否则 EXPORT_ENV 引用它时
+  # `set -u` 会报 unbound (builtin_defaults 先于 conf 载入)。空 = 不导出 = 代码默认 0 (缓存关闭)。
+  # 注意: 换槽调参键 (LK_GPU_CACHE_INTERVAL_MS/SWAPS/DECAY/MIN_GAIN/LOG_S) **未**加白名单,
+  # 若将来要用 conf 调, 必须一并加进 builtin_defaults 与 EXPORT_ENV, 否则静默不生效。
+  LK_GPU_CACHE_SLOTS=""
+  # 2026-10-25 (788fe82c): 缓存精度。空 = 不导出 = 代码默认 bf16 (W4A16); "fp8" = Humming W4A8 (有损)。
+  # 与上面同理, 必须在这里给默认值 + 加进 EXPORT_ENV, 否则 conf 写了不生效。
+  LK_GPU_CACHE_PRECISION=""
+  # 2026-10-26 (113a9017): 预取 CTA 数 (空 = 代码默认 32; 0 = 关预取) 与 staging 行数 (空 = 代码默认 4)。
+  # 同上, 必须在 builtin_defaults + EXPORT_ENV 里, 否则 conf 写了不生效。
+  LK_GPU_CACHE_PREFETCH_CTAS=""
+  LK_GPU_CACHE_STAGING=""
+
+  SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE="1"
+  SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK="0"
+  SGLANG_SKIP_P2P_CHECK="1"
+  GLOO_SOCKET_IFNAME="lo"
+  NCCL_SOCKET_IFNAME="lo"
+  GLIBC_TUNABLES="glibc.malloc.thp_enabled=0"
+  FLASHINFER_USE_CUDA_NORM="0"   # 上游默认; SM90 CuTe-DSL 路径 (模板的 1=CUDA-JIT 在预热段段错误)
+  FLASHINFER_DISABLE_VERSION_CHECK="1"
+  # 方案(b) 门: fallback 留空 = 不导出 (上游默认 0); 由 conf 置 "1" 生效。
+  # 必须在此声明, 否则 EXPORT_ENV 引用它时 `set -u` 会报 unbound (builtin_defaults 先于 conf 载入)。
+  SGLANG_DSV41_SKIP_CAPTURE_PREWARM=""
+  # 第二道门 (autotune DECODE dummy) —— 同样必须在此声明, 否则 EXPORT_ENV 引用会 unbound
+  SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE=""
+  SGLANG_DSV41_SWA_PAD_SENTINEL=""
+  SGLANG_DSV41_POST_CONVERT_RELEASE=""   # 转换后释放门 (由 conf 置 1 生效)
+  # 归因运行专用 (默认空 = 不导出, 完全惰性; 由 conf 置值生效)
+  SGLANG_DSV41_DUMP_FLASHMLA_ARGS=""
+  CUDA_LAUNCH_BLOCKING=""
+  # 试验A: 消除权重转换的池化碎片 (默认空 = 不导出; 由 conf 置值生效)
+  PYTORCH_CUDA_ALLOC_CONF=""
+
+  SERVE_COMMON_ARGS=(
+    --tensor-parallel-size 4
+    --mem-fraction-static 0.88
+    --max-running-requests 16
+    --context-length 1048576
+    --chunked-prefill-size 8192    # 必须显式给(layer.py:1945 无 None 兜底); 已回退 16384(见 conf 备选A)
+    # --ep-size 4                 # 2026-10-22 21:47 用户指示"去掉 ep, 用 TP4" ⇒ 已注释, ep_size 回默认 1
+    # --attn-dp-size 1            # 2026-10-22 21:5x 用户"这两项都要改" ⇒ 已注释, 回该 flag 默认
+    --moe-runner-backend flashinfer_mxfp4
+    # --flashinfer-mxfp4-moe-precision bf16   # 2026-10-23 00:57 用户"不传该 flag" ⇒ 已注释, 用默认 default (非fp8 ⇒ W4A16, 厂商 17/17 均不传)
+    --disable-flashinfer-autotune  # 关掉整段 autotune (其 dummy 前向连崩两次: #10 MoE / #11 attention); 非服务必需
+    --enable-decoder-swa-bounded-replay
+    --disable-shared-experts-fusion
+    --reasoning-parser auto
+    --tool-call-parser auto
+    --trust-remote-code
+  )
+  SERVE_EP_ARGS=()       # 刻意留空 = 不传 --ep-size (默认 1; 池才有 384 个本地专家)
+  SERVE_EXTRA_ARGS=()
+  MAX_TOTAL_TOKENS="4194304"   # lead 定稿: 硬钉 4×1M (每 full-token 1630 B ⇒ 6.37 GiB/卡)
+  CUDA_GRAPH_MAX_BS="16" # 图捕获 batch 上限 (= --max-running-requests); 空 = 用 sglang 默认 512
+  CUDA_GRAPH_BACKEND=""  # 空 = 不传; "disabled" → 关图 (注意: --disable-cuda-graph 已不可用)
+
+  # 【2026-10-23 05:0x】判据改为模式无关 (修全池模式误报): EXPECT = `[pool] slab:` (两模式都在);
+  #   FORBID = `…CUTLASS W4A8`; resident 模式的 W4A16 检查改为条件断言 (见 run_self_check)。
+  SELFCHECK_EXPECT_STR="[pool] slab:"
+  SELFCHECK_FORBID_STR="Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A8"
+  SELFCHECK_MIN_W4A8_LINES="1"
+  SELFCHECK_EXPECT_RUNNER="flashinfer_mxfp4"
+  ALLOW_NO_W4A8="0"      # 1 = 缺 W4A8 串不报错 (基线档用)
+
+  STARTUP_TIMEOUT_S="3600"
+  HEALTH_CURL_TIMEOUT_S="5"
+  STOP_SIGTERM_WAIT_S="60"
+  PID_FILE="${RUN_DIR}/serve_dsv41_tp4_h100.pid"
+  LOG_PREFIX="serve_dsv41_tp4_h100"
+  STATUS_TAIL_LINES="40"
+}
+builtin_defaults
+
+if [[ -n "$load_conf" ]]; then
+  # shellcheck source=/dev/null
+  source "$load_conf"; CONF_LOADED="$load_conf"
+else
+  CONF_LOADED="(none — 使用脚本内置默认值)"
+fi
+
+# -----------------------------------------------------------------------------
+# 2. 命令行
+# -----------------------------------------------------------------------------
+MODE="background"; WAIT_FOR_READY=1; SKIP_GPU_IDLE_CHECK=0; SKIP_BIN_CHECK=0
+DO_RESTART=0; DO_SELFCHECK=0
+
+usage() {
+  cat <<'USAGE_EOF'
+serve_dsv41_tp4_h100.sh   【定稿版】
+  DeepSeek-V4.1-Flash-1017 · Lsglang 1.6.1 · TP4 × 4×H100 80GB (SM90)
+  物理卡 4-7 (UUID 固定), NUMA node1, 端口 18010
+  前 20 层 (0-19) GPU-resident → W4A8; 后 20 层 → 192 槽专家池
+
+用法:
+  ./serve_dsv41_tp4_h100.sh                 # 后台拉起并等待就绪 + 自动跑 W4A8 自检
+  ./serve_dsv41_tp4_h100.sh --dry-run       # 只做 preflight + 打印将要执行的命令, 不启动
+  ./serve_dsv41_tp4_h100.sh --self-check    # 不启动; 对当前(或最近一次)日志跑 W4A8 自检
+  ./serve_dsv41_tp4_h100.sh --foreground    # 前台运行 (Ctrl-C 停止)
+  ./serve_dsv41_tp4_h100.sh --restart       # 若已在跑则先优雅停止再启动
+  ./serve_dsv41_tp4_h100.sh --no-wait       # 后台拉起后立刻返回, 不等 /health
+  ./serve_dsv41_tp4_h100.sh --skip-gpu-idle-check   # 跳过"卡必须空闲"断言
+  ./serve_dsv41_tp4_h100.sh --allow-missing-sglang  # env 未装好时也能跑 preflight 演示
+  ./serve_dsv41_tp4_h100.sh --help
+
+产物: 日志/PID -> logs/ ;  快照 -> configs/*.effective.<ts>.conf ;  **不写 /tmp**
+退出码: 0 成功 ; 1 preflight/启动失败 或 自检失败 ; 2 参数错误
+USAGE_EOF
+}
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run|-n)           MODE="dry-run" ;;
+    --foreground|-f)        MODE="foreground" ;;
+    --self-check)           DO_SELFCHECK=1 ;;
+    --restart)              DO_RESTART=1 ;;
+    --no-wait)              WAIT_FOR_READY=0 ;;
+    --skip-gpu-idle-check)  SKIP_GPU_IDLE_CHECK=1 ;;
+    --allow-missing-sglang) SKIP_BIN_CHECK=1 ;;
+    --help|-h)              usage; exit 0 ;;
+    *) echo "未知参数: $1 (用 --help)" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+# -----------------------------------------------------------------------------
+# 3. 工具
+# -----------------------------------------------------------------------------
+ts()      { date '+%Y-%m-%d %H:%M:%S'; }
+log()     { printf '[%s] %s\n' "$(ts)" "$*"; }
+log_err() { printf '[%s] ERROR: %s\n' "$(ts)" "$*" >&2; }
+die()     { log_err "$*"; exit 1; }
+
+PREFLIGHT_FAIL=0
+chk_ok()   { printf '  [ OK ]   %s\n' "$*"; }
+chk_bad()  { printf '  [FAIL]   %s\n' "$*"; PREFLIGHT_FAIL=$((PREFLIGHT_FAIL + 1)); }
+chk_warn() { printf '  [WARN]   %s\n' "$*"; }
+
+shell_quote() {
+  local s="$1"
+  [[ -z "$s" ]] && { printf "''"; return; }
+  if [[ "$s" =~ ^[A-Za-z0-9_@%+=:,./-]+$ ]]; then printf '%s' "$s"; return; fi
+  printf "'%s'" "${s//\'/\'\\\'\'}"
+}
+quote_cmd() { local a out=""; for a in "$@"; do out+="$(shell_quote "$a") "; done; printf '%s' "${out% }"; }
+
+RUN_TS="$(date '+%Y%m%d_%H%M%S')"
+mkdir -p "$RUN_DIR" "$CONF_SNAPSHOT_DIR"
+: "${PID_FILE:=${RUN_DIR}/serve_dsv41_tp4_h100.pid}"
+: "${LOG_PREFIX:=serve_dsv41_tp4_h100}"
+LOG_FILE="${RUN_DIR}/${LOG_PREFIX}_${RUN_TS}.log"
+LOG_LINK="${RUN_DIR}/${LOG_PREFIX}.log"
+SNAP_FILE="${CONF_SNAPSHOT_DIR}/dsv41_tp4_h100.effective.${RUN_TS}.conf"
+
+CUDA_VISIBLE_DEVICES="$(IFS=,; printf '%s' "${GPU_UUIDS[*]}")"
+export CUDA_DEVICE_ORDER CUDA_VISIBLE_DEVICES
+# env-builder 实测必需的运行前置 (否则 JIT / FlashInfer 找不到 nvcc):
+#   nvcc 13.2.51 不在默认 PATH; libstdcxx 等在 env/lib
+: "${CUDA_HOME:=/usr/local/cuda}"
+export CUDA_HOME
+export PATH="/usr/local/cuda/bin:${LSGLANG_VENV}/bin:${PATH}"
+if [[ -d "${LSGLANG_VENV}/lib" ]]; then
+  export LD_LIBRARY_PATH="${LSGLANG_VENV}/lib:${LD_LIBRARY_PATH:-}"
+fi
+SGLANG_BIN="${LSGLANG_VENV}/bin/sglang"
+
+# 组装 argv; MAX_TOTAL_TOKENS 非空 → 剔除内联的 --max-total-tokens, 用覆盖值
+SERVE_ARGS=()
+_skip_next=0
+for _a in "${SERVE_COMMON_ARGS[@]}"; do
+  if (( _skip_next )); then _skip_next=0; continue; fi
+  if [[ -n "$MAX_TOTAL_TOKENS" && "$_a" == "--max-total-tokens" ]]; then _skip_next=1; continue; fi
+  SERVE_ARGS+=("$_a")
+done
+unset _a _skip_next
+[[ -n "$MAX_TOTAL_TOKENS" ]] && SERVE_ARGS+=(--max-total-tokens "$MAX_TOTAL_TOKENS")
+# 【2026-10-23 · 用户指示"现在需要上 dspark 了"】对齐厂商脚本三件套
+# 厂商依据: launch/sglang_serve_0731_dspark_tp2_3090.sh:56-58
+if [[ "$SPEC_ENABLED" == "1" ]]; then
+  SERVE_ARGS+=(--speculative-algorithm DSPARK --speculative-dspark-block-size 5 --speculative-attention-mode decode --speculative-use-rejection-sampling)
+fi
+# --- CUDA graph 显存压力调节阀 ---------------------------------------------
+# 图捕获显存**不进** KV 池预算 (envs.SGLANG_ENABLE_POST_CAPTURE_KV_SIZING 默认 False;
+# 且 post_capture_kv_sizing_planned() 对 MLA 模型 return False) ⇒ 必须由 0.88 的余量覆盖。
+# 余量 = pre_model_load_memory × (1−0.88) ≈ 9.56 GiB/卡, 且 pre_capture_activation_reserve_mb()
+# 对 >60GiB 卡有 max(..., 10*1024 MB) 下限 ⇒ 实际可用余量 ≈ **10 GiB/卡**。
+# 本栈默认 decode 图 max_bs = 512 (H100 + tp4, memory_hook.py:118-136) 而
+# --max-running-requests=16 ⇒ 捕获到 512 纯属浪费, 是这块余量的首要消耗者。
+# 注意: 本版本**没有** `--cuda-graph-max-bs`, 正确拼写带 -decode/-prefill 后缀。
+if [[ -n "$CUDA_GRAPH_MAX_BS" ]]; then
+  SERVE_ARGS+=(--cuda-graph-max-bs-decode "$CUDA_GRAPH_MAX_BS")
+  SERVE_ARGS+=(--cuda-graph-max-bs-prefill "$CUDA_GRAPH_MAX_BS")
+fi
+# 注意: disable_cuda_graph 字段是 Arg(no_cli=True) ⇒ 不要用 --disable-cuda-graph,
+#       官方替代写法是 --cuda-graph-backend-{decode,prefill}=disabled
+if [[ -n "$CUDA_GRAPH_BACKEND" ]]; then
+  SERVE_ARGS+=(--cuda-graph-backend-decode "$CUDA_GRAPH_BACKEND")
+  SERVE_ARGS+=(--cuda-graph-backend-prefill "$CUDA_GRAPH_BACKEND")
+fi
+# --- ep-size: 刻意留空 = 用默认 1 (池才有 384 个本地专家, 192 槽才成立) ---
+if [[ ${#SERVE_EP_ARGS[@]} -gt 0 ]]; then SERVE_ARGS+=("${SERVE_EP_ARGS[@]}"); fi
+if [[ ${#SERVE_EXTRA_ARGS[@]} -gt 0 ]]; then SERVE_ARGS+=("${SERVE_EXTRA_ARGS[@]}"); fi
+SERVE_ARGS+=(--host "$HOST" --port "$PORT")
+FULL_CMD=("$SGLANG_BIN" serve --model "$MODEL_PATH" "${SERVE_ARGS[@]}")
+[[ -n "$SERVED_MODEL_NAME" ]] && FULL_CMD+=(--served-model-name "$SERVED_MODEL_NAME")
+
+# -----------------------------------------------------------------------------
+# 4. 环境变量表
+# -----------------------------------------------------------------------------
+declare -A EXPORT_ENV=(
+  [CUDA_DEVICE_ORDER]="$CUDA_DEVICE_ORDER"
+  [CUDA_VISIBLE_DEVICES]="$CUDA_VISIBLE_DEVICES"
+  [LK_MOE_HYBRID_ENABLED]="$LK_MOE_HYBRID_ENABLED"
+  [LK_GPU_RESIDENT_MOE_LAYERS]="$LK_GPU_RESIDENT_MOE_LAYERS"
+  [LK_GPU_RESIDENT_MOE_LAYERS_SPEC]="$LK_GPU_RESIDENT_MOE_LAYERS_SPEC"
+  [LK_POOL_SLOTS]="$LK_POOL_SLOTS"
+  [LK_POOL_LOG]="$LK_POOL_LOG"
+  [LK_POOL_WINDOW]="$LK_POOL_WINDOW"
+  [LK_POOL_INFLIGHT]="$LK_POOL_INFLIGHT"
+  [LK_POOL_STAGE]="$LK_POOL_STAGE"
+  [LK_POOL_DECODE]="$LK_POOL_DECODE"
+  # 2026-10-25: 该键原先不在白名单 ⇒ conf 里写 "1" 也从未进过进程环境
+  [LK_POOL_DET_SPLIT]="$LK_POOL_DET_SPLIT"
+  [LK_THREADS]="$LK_THREADS"
+  [LK_THREAD_BINDING]="$LK_THREAD_BINDING"
+  [LK_NUMA_INTERLEAVE]="$LK_NUMA_INTERLEAVE"
+  [LK_POWER_SAVING]="$LK_POWER_SAVING"
+  [OMP_NUM_THREADS]="$OMP_NUM_THREADS"
+  [LK_GPU_PREFILL_MIN_TOKENS]="$LK_GPU_PREFILL_MIN_TOKENS"
+  [LK_GPU_PREFILL_SUB_M]="$LK_GPU_PREFILL_SUB_M"
+  [LK_GPU_PREFILL_ENGINE]="$LK_GPU_PREFILL_ENGINE"
+  [LK_GPU_PREFETCH_WINDOW]="$LK_GPU_PREFETCH_WINDOW"
+  [LK_GPU_RESERVE_GB]="$LK_GPU_RESERVE_GB"
+  [LK_VERIFY_RESIDENT]="$LK_VERIFY_RESIDENT"
+  [LK_VERIFY_SKIP_MISS]="$LK_VERIFY_SKIP_MISS"
+  [LK_VERIFY_GEMM]="$LK_VERIFY_GEMM"
+  [LK_VERIFY_UVA]="$LK_VERIFY_UVA"
+  [LK_VERIFY_UVA_PROVIDER]="$LK_VERIFY_UVA_PROVIDER"
+  # 2026-10-25: GPU 专家缓存 (1cf916ebc0)。先前不在白名单的键 conf 写了也不生效。
+  [LK_GPU_CACHE_SLOTS]="$LK_GPU_CACHE_SLOTS"
+  [LK_GPU_CACHE_PRECISION]="$LK_GPU_CACHE_PRECISION"
+  [LK_GPU_CACHE_PREFETCH_CTAS]="$LK_GPU_CACHE_PREFETCH_CTAS"
+  [LK_GPU_CACHE_STAGING]="$LK_GPU_CACHE_STAGING"
+  [SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE]="$SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE"
+  [SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK]="$SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK"
+  [SGLANG_SKIP_P2P_CHECK]="$SGLANG_SKIP_P2P_CHECK"
+  [GLOO_SOCKET_IFNAME]="$GLOO_SOCKET_IFNAME"
+  [NCCL_SOCKET_IFNAME]="$NCCL_SOCKET_IFNAME"
+  [GLIBC_TUNABLES]="$GLIBC_TUNABLES"
+  [FLASHINFER_USE_CUDA_NORM]="$FLASHINFER_USE_CUDA_NORM"
+  [FLASHINFER_DISABLE_VERSION_CHECK]="$FLASHINFER_DISABLE_VERSION_CHECK"
+  [SGLANG_DSV41_SKIP_CAPTURE_PREWARM]="$SGLANG_DSV41_SKIP_CAPTURE_PREWARM"
+  [SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE]="$SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE"
+  [SGLANG_DSV41_SWA_PAD_SENTINEL]="$SGLANG_DSV41_SWA_PAD_SENTINEL"
+  [SGLANG_DSV41_POST_CONVERT_RELEASE]="$SGLANG_DSV41_POST_CONVERT_RELEASE"
+  [SGLANG_DSV41_DUMP_FLASHMLA_ARGS]="$SGLANG_DSV41_DUMP_FLASHMLA_ARGS"
+  [CUDA_LAUNCH_BLOCKING]="$CUDA_LAUNCH_BLOCKING"
+  [PYTORCH_CUDA_ALLOC_CONF]="$PYTORCH_CUDA_ALLOC_CONF"   # 试验A
+)
+declare -A UNSET_NOTE=(
+  [SGLANG_DSV4_FP4_DEQUANT]="必须保持未设(False): deepseek_v4.py:80 用它作 auto→flashinfer_mxfp4 的门, 设 1 会选不到"
+  [SGLANG_SM8X_MARLIN_GROUP32]="SM90 无效 (fp8.py:562 要求 80<=cap<89); 已删除"
+  [SGLANG_SM8X_MARLIN_GROUP32_ONLY]="SM90 无效; 已删除"
+)
+export_env_vars() { local k; for k in "${!EXPORT_ENV[@]}"; do [[ -n "${EXPORT_ENV[$k]}" ]] && export "$k=${EXPORT_ENV[$k]}"; done; }
+sorted_env_lines() {
+  local k
+  for k in $(printf '%s\n' "${!EXPORT_ENV[@]}" | LC_ALL=C sort); do
+    [[ -n "${EXPORT_ENV[$k]}" ]] && printf 'export %s=%s\n' "$k" "$(shell_quote "${EXPORT_ENV[$k]}")"
+  done
+}
+
+write_snapshot() {
+  {
+    echo "# Lsglang serve 有效配置快照 (自动生成, 勿手改)  【定稿版】"
+    echo "# 生成: $(ts)   主机: $(hostname)   调用者: ${USER:-$(id -un)}"
+    echo "# conf 来源: ${CONF_LOADED}"
+    echo "# 日志: $LOG_FILE"
+    echo "# 方案: 前 20 层(0-19) GPU-resident → W4A8 ; 后 20 层 → ${LK_POOL_SLOTS} 槽池 (闭源 W4A16 等价)"
+    echo
+    echo "# ---- 导出到进程的环境变量 (按字母序) ----"
+    sorted_env_lines
+    echo
+    echo "# ---- 未导出 (留空, 交由上游默认) ----"
+    local k
+    for k in $(printf '%s\n' "${!EXPORT_ENV[@]}" | LC_ALL=C sort); do
+      [[ -z "${EXPORT_ENV[$k]}" ]] && printf '# (空) %s\n' "$k"
+    done
+    echo
+    echo "# ---- 必须保持未设 ----"
+    for k in $(printf '%s\n' "${!UNSET_NOTE[@]}" | LC_ALL=C sort); do
+      printf '# (不设) %s —— %s\n' "$k" "${UNSET_NOTE[$k]}"
+    done
+    echo
+    echo "# ---- 完整命令行 ----"
+    echo "$(quote_cmd "${FULL_CMD[@]}")"
+    echo
+    echo "# ---- 期望的 W4A8 日志串 ----"
+    echo "#   ${SELFCHECK_EXPECT_STR}"
+    echo "# 禁止出现的 ----"
+    echo "#   ${SELFCHECK_FORBID_STR}"
+    echo
+    echo "# ---- GPU UUID -> 物理序号 ----"
+    local i
+    for i in "${!GPU_UUIDS[@]}"; do echo "#   ${GPU_UUIDS[$i]}  ->  物理 GPU${GPU_EXPECTED_INDEXES[$i]}"; done
+  } > "$SNAP_FILE"
+}
+
+load_pidfile() {
+  RPID=""; RPGID=""; RSTART_TS=""; RLOG=""; RSNAP=""
+  [[ -f "$PID_FILE" ]] || return 0
+  local out
+  out="$( { set +u; # shellcheck source=/dev/null
+      . "$PID_FILE" 2>/dev/null || true
+      printf 'RPID=%s\nRPGID=%s\nRSTART_TS=%s\nRLOG=%s\nRSNAP=%s\n' \
+        "${PID:-}" "${PGID:-}" "${START_TS:-}" "${LOG_FILE_RECORDED:-}" "${SNAP_FILE:-}"; } )"
+  eval "$out" 2>/dev/null || true
+}
+
+latest_log() {
+  if [[ -n "${RLOG:-}" && -f "$RLOG" ]]; then printf '%s' "$RLOG"
+  else ls -1t "${RUN_DIR}/${LOG_PREFIX}"_*.log 2>/dev/null | head -1 || true; fi
+}
+
+# -----------------------------------------------------------------------------
+# 5. 启动后自检 (W4A8 是否真的生效)
+# -----------------------------------------------------------------------------
+run_self_check() {
+  local lf="$1"
+  local rc=0
+  echo
+  echo "=============================================================="
+  echo " 启动后自检 · W4A8 开关是否生效"
+  echo "=============================================================="
+  if [[ -z "$lf" || ! -f "$lf" ]]; then
+    log_err "找不到日志文件, 无法自检 (查 ${RUN_DIR})"; return 1
+  fi
+  echo " 日志: $lf"
+  echo "--------------------------------------------------------------"
+
+  local n_expect n_forbid n_w4a16_res
+  # ⚠ 必须剔除本脚本自己写入的 "自检断言" 横幅行 —— 那行原文引用了这些串, 否则假阳性。
+  # 【2026-10-23 05:0x】变量名与标签已改为模式无关 (原 n_w4a8 实际数的是 EXPECT 串, 标签却写 W4A8 → 误导)。
+  n_expect="$(grep -v '自检断言' "$lf" 2>/dev/null | grep -cF "$SELFCHECK_EXPECT_STR" || true)"
+  n_forbid="$(grep -v '自检断言' "$lf" 2>/dev/null | grep -cF "$SELFCHECK_FORBID_STR" || true)"
+
+  echo "1) 期望串 [${SELFCHECK_EXPECT_STR:0:40}] 命中行数: ${n_expect}  (硬门槛 >= ${SELFCHECK_MIN_W4A8_LINES})"
+  if (( n_expect >= SELFCHECK_MIN_W4A8_LINES )); then
+    printf '  [ OK ]   ✓ 建池成功 (EXPECT 串出现)\n'
+    grep -v '自检断言' "$lf" | grep -F "$SELFCHECK_EXPECT_STR" | head -3 | cut -c1-200 | sed 's/^/           /'
+  elif [[ "${ALLOW_NO_W4A8:-0}" == "1" ]]; then
+    printf '  [SKIP]   ALLOW_NO_W4A8=1: 本档不要求该串, 不计失败\n'
+  else
+    printf '  [ALARM]  ✗ 未出现期望串 —— 建池可能没发生\n'
+    rc=1
+  fi
+
+  echo
+  echo "2) 禁止串 (CUTLASS W4A8) 命中行数: ${n_forbid}  (必须 0, 任何模式都不该出现)"
+  if (( n_forbid == 0 )); then
+    printf '  [ OK ]   ✓ 没有落在 W4A8 路径\n'
+  else
+    printf '  [ALARM]  ✗ 出现了 W4A8 —— 与预期不符, 立即人工介入!\n'
+    grep -F "$SELFCHECK_FORBID_STR" "$lf" | head -5 | sed 's/^/           /'
+    rc=1
+  fi
+
+  # 【2026-10-23 05:0x 新增】resident 模式的**条件断言**: 仅当 resident 列表非空时才要求 W4A16 行,
+  #   避免全池模式 (resident 为空) 误报。全池模式下这两类串都不会出现 —— 属正常, 跳过。
+  echo
+  echo "2b) [条件断言] resident 模式下应有 CUTLASS W4A16 行"
+  if [[ -z "${LK_GPU_RESIDENT_MOE_LAYERS:-}" ]]; then
+    printf '  [SKIP]   LK_GPU_RESIDENT_MOE_LAYERS 为空 (全池模式) ⇒ 不要求 W4A16 串, 不计失败\n'
+  else
+    n_w4a16_res="$(grep -v '自检断言' "$lf" 2>/dev/null | grep -cF 'CUTLASS W4A16 (layer:' || true)"
+    if (( n_w4a16_res >= 1 )); then
+      printf '  [ OK ]   ✓ resident=%s ⇒ CUTLASS W4A16 行数=%s\n' "$LK_GPU_RESIDENT_MOE_LAYERS" "$n_w4a16_res"
+    else
+      printf '  [ALARM]  ✗ resident=%s 非空但 CUTLASS W4A16 行数=0 —— resident 转换路径没跑?\n' "$LK_GPU_RESIDENT_MOE_LAYERS"
+      rc=1
+    fi
+  fi
+
+  echo
+  echo "3) MoE runner backend 是否落在 ${SELFCHECK_EXPECT_RUNNER}"
+  if grep -qF "$SELFCHECK_EXPECT_RUNNER" "$lf" 2>/dev/null; then
+    printf '  [ OK ]   ✓ 日志含 %s\n' "$SELFCHECK_EXPECT_RUNNER"
+    grep -F "$SELFCHECK_EXPECT_RUNNER" "$lf" | tail -3 | sed 's/^/           /'
+  else
+    printf '  [WARN]   日志未出现 %s (可能与 1) 同一原因)\n' "$SELFCHECK_EXPECT_RUNNER"; rc=1
+  fi
+
+  echo
+  echo "4) 故障定位提示 (R2 / 精度)"
+  if (( n_forbid > 0 )); then
+    echo "  ⚠ 出现了 CUTLASS W4A8 串 —— 与预期不符 (当前应走 W4A16), 先查精度开关:"
+    echo "   a) LK_GPU_RESIDENT_MOE_LAYERS 是否为空? 当前 = '${LK_GPU_RESIDENT_MOE_LAYERS}'"
+    echo "      空 ⇒ 全部 40 层进池 ⇒ resident=0 ⇒ W4A8 必然不出现 (mxfp4_flashinfer_cutlass_moe.py:144)"
+    echo "   b) --moe-runner-backend 是否仍是 flashinfer_mxfp4 ? 当前 = 'flashinfer_mxfp4'"
+    echo "   c) --flashinfer-mxfp4-moe-precision 是否为 fp8 ? (default → W4A16)"
+    echo "   d) SGLANG_DSV4_FP4_DEQUANT 是否被设了? 设了会让 auto 选不到 flashinfer_mxfp4"
+    echo "   e) 有没有出现 'Preparing DSv4 MXFP4 experts for FlashInfer CUTLASS' (无 arch) 的其它变体?"
+    grep -oE "Preparing DSv4 MXFP4 experts for FlashInfer [^(]*" "$lf" 2>/dev/null | sort -u | sed 's/^/      /' || true
+  fi
+
+  echo
+  echo "5) 旁证 (池 / KV / 显存)"
+  grep -oE "\[pool\] slab:[^(]*|max_total_num_tokens[^,]*|Preparing.*|Available memory:[^,]*" "$lf" 2>/dev/null \
+    | tail -8 | sed 's/^/      /' || true
+
+  echo
+  echo "--------------------------------------------------------------"
+  if (( rc == 0 )); then
+    echo " 自检结果: 通过 ✅  (EXPECT='${SELFCHECK_EXPECT_STR:0:30}' 命中 ${n_expect} 行; W4A8 禁止串 ${n_forbid} 行)"
+  else
+    echo " 自检结果: 失败 ❌  见上方 ALARM"
+  fi
+  echo "=============================================================="
+  return $rc
+}
+
+# -----------------------------------------------------------------------------
+# 6. --self-check 单独模式 (不启动)
+# -----------------------------------------------------------------------------
+if [[ "$DO_SELFCHECK" -eq 1 && "$MODE" != "dry-run" ]]; then
+  load_pidfile
+  if [[ -n "$RPID" ]] && kill -0 "$RPID" 2>/dev/null; then
+    echo "服务在运行 (PID ${RPID}), 对当前日志自检:"
+  else
+    echo "服务未运行, 对最近一次日志自检:"
+  fi
+  lf="$(latest_log)"
+  [[ -n "$lf" ]] || die "找不到任何日志 (${RUN_DIR}/${LOG_PREFIX}_*.log)"
+  run_self_check "$lf"; exit $?
+fi
+
+print_header() {
+  echo "=============================================================="
+  echo " Lsglang serve 【定稿版】· DeepSeek-V4.1-Flash-1017 · TP4 × 4×H100"
+  echo "=============================================================="
+  echo " 模式         : $MODE"
+  echo " conf         : $CONF_LOADED"
+  echo " venv 入口    : $SGLANG_BIN"
+  echo " 权重         : $MODEL_PATH"
+  echo " 端点         : http://${HOST}:${PORT}"
+  echo " GPU(UUID)    : $CUDA_VISIBLE_DEVICES"
+  echo " 专家方案     : resident=${LK_GPU_RESIDENT_MOE_LAYERS:-<空!>} (W4A8) + pool=${LK_POOL_SLOTS} 槽 (W4A16 等价)"
+  echo " 日志         : $LOG_FILE"
+  echo " PID 文件     : $PID_FILE"
+  echo "--------------------------------------------------------------"
+}
+
+# -----------------------------------------------------------------------------
+# 7. 幂等
+# -----------------------------------------------------------------------------
+if [[ "$MODE" != "dry-run" && "$DO_SELFCHECK" -eq 0 ]]; then
+  load_pidfile
+  if [[ -n "$RPID" ]] && kill -0 "$RPID" 2>/dev/null; then
+    etime="$(ps -o etime= -p "$RPID" 2>/dev/null | tr -d ' ' || echo '?')"
+    echo "=============================================================="
+    echo " 服务已在运行 —— 本次不重复拉起 (幂等)"
+    echo "=============================================================="
+    echo " PID/PGID   : ${RPID} / ${RPGID:-?}"
+    echo " 启动时间   : ${RSTART_TS:-?}  (已运行 ${etime})"
+    echo " 日志       : ${RLOG:-?}"
+    if curl -sf -m "$HEALTH_CURL_TIMEOUT_S" "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+      echo " /health    : 200 OK (就绪)  ->  http://${HOST}:${PORT}/v1"
+    else
+      echo " /health    : 未就绪 / 未响应 (看 ./status.sh)"
+    fi
+    if [[ "$DO_RESTART" -eq 1 ]]; then
+      echo "--------------------------------------------------------------"
+      log "--restart: 先优雅停止 PID ${RPID} …"
+      [[ -x "${SCRIPT_DIR}/stop_dsv41_tp4_h100.sh" ]] || die "找不到 ${SCRIPT_DIR}/stop_dsv41_tp4_h100.sh"
+      "${SCRIPT_DIR}/stop_dsv41_tp4_h100.sh" || die "停止失败, 中止 --restart"
+      sleep 3; log "已停止, 继续启动新实例。"
+    else
+      echo "--------------------------------------------------------------"
+      echo " 需要重启: $0 --restart   或   ./stop_dsv41_tp4_h100.sh && $0"
+      echo " W4A8 自检: $0 --self-check"
+      exit 0
+    fi
+  elif [[ -n "$RPID" ]]; then
+    log "清理陈旧 PID 文件 (PID ${RPID} 已不存在): $PID_FILE"; rm -f "$PID_FILE"
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 8. Preflight
+# -----------------------------------------------------------------------------
+echo "=============================================================="
+print_header
+echo " Preflight 检查"
+echo "--------------------------------------------------------------"
+
+echo "1) 端口 ${PORT}"
+port_owner_pid=""
+if command -v ss >/dev/null 2>&1; then
+  port_owner_pid="$(ss -ltnp "sport = :${PORT}" 2>/dev/null | awk 'NR>1' | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2 || true)"
+fi
+if [[ -z "$port_owner_pid" ]]; then chk_ok "端口 ${PORT} 空闲"
+else chk_bad "端口 ${PORT} 已被 PID ${port_owner_pid} 占用 ($(ps -o comm= -p "$port_owner_pid" 2>/dev/null || echo '?'))"; fi
+
+echo "2) 依赖文件"
+if [[ -x "$SGLANG_BIN" ]]; then
+  chk_ok "sglang 入口存在且可执行: $SGLANG_BIN"
+  sg_ver="$("$SGLANG_BIN" --version 2>/dev/null | tail -1 || true)"
+  [[ -n "$sg_ver" ]] && chk_ok "sglang --version: $sg_ver"
+elif [[ "$SKIP_BIN_CHECK" -eq 1 ]]; then
+  chk_warn "sglang 入口缺失 (已用 --allow-missing-sglang 忽略): $SGLANG_BIN"
+else
+  chk_bad "sglang 入口缺失或不可执行: $SGLANG_BIN  (env 可能还没装完)"
+fi
+if [[ -d "$LSGLANG_REPO" ]]; then
+  v="$(grep -m1 '^version' "$LSGLANG_REPO/python/pyproject.toml" 2>/dev/null | tr -d ' ",' | cut -d= -f2 || true)"
+  rv="$(grep -m1 '"lk_moe==' "$LSGLANG_REPO/python/pyproject.toml" 2>/dev/null | tr -d ' ",' | sed 's/.*lk_moe==//' || true)"
+  chk_ok "仓库工作树存在; pyproject version=${v:-?}, 钉 lk_moe==${rv:-?}"
+else
+  chk_warn "仓库工作树不存在 (仅影响版本核对): $LSGLANG_REPO"
+fi
+if [[ -d "$MODEL_PATH" && -f "$MODEL_PATH/config.json" ]]; then
+  chk_ok "权重目录存在; config.json 存在; safetensors 分片 $(ls "$MODEL_PATH"/model-*-of-*.safetensors 2>/dev/null | wc -l) 个"
+else
+  chk_bad "权重目录或 config.json 缺失: $MODEL_PATH"
+fi
+
+echo "3) GPU 绑定 (UUID)"
+gpu_l_listing="$(nvidia-smi -L 2>/dev/null || true)"
+if [[ -z "$gpu_l_listing" ]]; then
+  chk_bad "nvidia-smi -L 无输出 (驱动异常?)"
+else
+  mapfile -t gpu_pairs < <(printf '%s\n' "$gpu_l_listing" | sed -n 's/^GPU \([0-9]\+\):.*(UUID: \(GPU-[^)]*\)).*/\1 \2/p')
+  idx_of_uuid() { local want="$1" l; for l in "${gpu_pairs[@]}"; do [[ "${l##* }" == "$want" ]] && { printf '%s' "${l%% *}"; return 0; }; done; return 1; }
+  desc_of_uuid() { local i; if i="$(idx_of_uuid "$1")"; then printf '物理 GPU%s' "$i"; else printf '(未找到)'; fi; }
+  for i in "${!GPU_UUIDS[@]}"; do
+    u="${GPU_UUIDS[$i]}"; exp="${GPU_EXPECTED_INDEXES[$i]}"
+    if got="$(idx_of_uuid "$u")"; then
+      [[ "$got" == "$exp" ]] && chk_ok "UUID ${u} -> 物理 GPU${got} (与期望一致)" \
+                             || chk_bad "UUID ${u} -> 物理 GPU${got}, 期望 GPU${exp}"
+    else chk_bad "UUID ${u} 不在 nvidia-smi -L 输出中"; fi
+  done
+  for f in "${GPU_FORBIDDEN_UUIDS[@]}"; do
+    if printf '%s\n' "${GPU_UUIDS[@]}" | grep -qxF "$f"; then
+      chk_bad "禁止使用的 UUID ${f} ($(desc_of_uuid "$f")) 混入了可见列表"
+    else chk_ok "禁止卡 $(desc_of_uuid "$f") 未出现在可见列表中"; fi
+  done
+
+  echo "4) 目标卡显存占用 (阈值 < ${GPU_IDLE_MAX_USED_MIB} MiB)"
+  q="$(nvidia-smi --query-gpu=index,uuid,memory.used --format=csv,noheader,nounits 2>/dev/null || true)"
+  if [[ -z "$q" ]]; then chk_bad "nvidia-smi 查询显存失败"
+  else
+    for i in "${!GPU_UUIDS[@]}"; do
+      u="${GPU_UUIDS[$i]}"
+      used="$(printf '%s\n' "$q" | awk -F', *' -v u="$u" '$2==u{print $3}' | head -1)"
+      if [[ -z "$used" ]]; then chk_bad "查不到 UUID ${u} 的显存占用"
+      elif (( used < GPU_IDLE_MAX_USED_MIB )); then chk_ok "物理 GPU${GPU_EXPECTED_INDEXES[$i]} (${u:0:18}…) 已用 ${used} MiB — 空闲"
+      elif [[ "$SKIP_GPU_IDLE_CHECK" -eq 1 ]]; then chk_warn "物理 GPU${GPU_EXPECTED_INDEXES[$i]} 已用 ${used} MiB ≥ 阈值 (已跳过检查)"
+      else chk_bad "物理 GPU${GPU_EXPECTED_INDEXES[$i]} 已用 ${used} MiB ≥ 阈值 ${GPU_IDLE_MAX_USED_MIB} MiB"; fi
+    done
+  fi
+fi
+
+echo "5) CPU / NUMA / 方案一致性自检"
+phys_cores="$(lscpu -p=Core,Socket 2>/dev/null | grep -v '^#' | sort -u | wc -l)"
+chk_ok "逻辑 CPU $(nproc 2>/dev/null || echo '?'), 物理核 ${phys_cores}"
+if [[ "$phys_cores" =~ ^[0-9]+$ ]] && (( phys_cores > 0 )); then
+  auto_threads=$(( phys_cores / ${#GPU_UUIDS[@]} ))
+  if [[ "$LK_THREADS" == "$auto_threads" ]]; then
+    chk_ok "LK_THREADS=${LK_THREADS} 等于 README 公式值 (物理核 ${phys_cores} ÷ ${#GPU_UUIDS[@]} 卡)"
+  else
+    chk_warn "LK_THREADS=${LK_THREADS} ≠ README 公式值 ${auto_threads} (lead 定稿值, 保留; 仅提示)"
+  fi
+fi
+if [[ "$LK_NUMA_INTERLEAVE" == "1" ]]; then chk_ok "LK_NUMA_INTERLEAVE=1 (host 常驻 464.6 GiB > node1 的 401.8 GiB, 必须开)"
+else chk_bad "LK_NUMA_INTERLEAVE=${LK_NUMA_INTERLEAVE} — 关闭会 node OOM"; fi
+if [[ "$LK_MOE_HYBRID_ENABLED" == "1" ]]; then chk_ok "LK_MOE_HYBRID_ENABLED=1 (总开关)"
+else chk_bad "LK_MOE_HYBRID_ENABLED=${LK_MOE_HYBRID_ENABLED} — 必须 1"; fi
+
+# ---- R2 守卫: resident 层必须非空, 否则 W4A8 是空转 ----
+w4a8_requested=0
+for _a in "${SERVE_ARGS[@]}"; do [[ "$_a" == "fp8" ]] && w4a8_requested=1; done
+if [[ "$w4a8_requested" -eq 1 ]]; then
+  if [[ -z "$LK_GPU_RESIDENT_MOE_LAYERS" ]]; then
+    chk_bad "R2! 用了 --flashinfer-mxfp4-moe-precision fp8 但 LK_GPU_RESIDENT_MOE_LAYERS 为空 —— 全部层进池 ⇒ resident=0 ⇒ W4A8 完全失效 (mxfp4_flashinfer_cutlass_moe.py:144)"
+  else
+    chk_ok "R2 守卫通过: LK_GPU_RESIDENT_MOE_LAYERS='${LK_GPU_RESIDENT_MOE_LAYERS}' 非空 ⇒ W4A8 有作用对象"
+  fi
+fi
+if [[ -n "${SGLANG_DSV4_FP4_DEQUANT:-}" ]]; then
+  chk_bad "SGLANG_DSV4_FP4_DEQUANT='${SGLANG_DSV4_FP4_DEQUANT}' 被设置了 —— 会导致 auto 选不到 flashinfer_mxfp4, 必须未设"
+else
+  chk_ok "SGLANG_DSV4_FP4_DEQUANT 未设 (必需)"
+fi
+if [[ -n "${SGLANG_SM8X_MARLIN_GROUP32:-}" || -n "${SGLANG_SM8X_MARLIN_GROUP32_ONLY:-}" ]]; then
+  chk_warn "检测到 SM8x 专用 env —— SM90 上无效, 建议取消"
+else
+  chk_ok "未设置 SM8x MARLIN_GROUP32* (SM90 上无效, 已排除)"
+fi
+# 池/驻留算术提示 —— 公式**按 ep_size 分支** (2026-10-22 用实测值校正)
+if [[ "$LK_POOL_SLOTS" =~ ^[0-9]+$ ]] && (( LK_POOL_SLOTS > 0 )); then
+  # 完整专家字节 = 3 × moe_intermediate(2304) × hidden(5120) × 0.5 B(fp4) + ue8m0 块缩放 ≈ 18,800,640 B = 17.93 MiB
+  #   ep_size=1: MoE 中间维按 TP4 切分  ⇒ 每槽 = 完整专家 / 4 = 4.70 MB
+  #   ep_size>1: 中间维**不切分**      ⇒ 每槽 = 完整专家     = 18.80 MB (4× 于 ep1)
+  # 实测校正依据 (2026-10-22 实例#4, ep4):
+  #   [pool] slab: 16.81 GiB (20 layers x 860.62 MiB)  ⇒  860.62 MiB / 48 槽 = 17.93 MiB/槽 = 完整专家 ✓
+  #   旧公式写死 4,700,160/4 = 4.48 MiB ⇒ 48 槽时把池估小了 **16 倍** (4× 来自 ep4, 另 4× 来自那个多余的 /4)。
+  ep_size=1; _prev=""
+  for _a in "${SERVE_ARGS[@]}"; do
+    [[ "$_prev" == "--ep-size" ]] && ep_size="$_a"
+    _prev="$_a"
+  done
+  unset _prev
+  bytes_slot=$(( 18800640 ))
+  (( ep_size == 1 )) && bytes_slot=$(( 18800640 / 4 ))
+  # 池层数 = 总层数(40) − resident 层数; resident 列表支持 "a-b,c,d" 三种写法
+  n_res=0
+  if [[ -n "$LK_GPU_RESIDENT_MOE_LAYERS" ]]; then
+    IFS=',' read -r -a _parts <<< "$LK_GPU_RESIDENT_MOE_LAYERS"
+    for _p in "${_parts[@]}"; do
+      _p="${_p// /}"
+      if [[ "$_p" =~ ^([0-9]+)-([0-9]+)$ ]]; then n_res=$(( n_res + BASH_REMATCH[2] - BASH_REMATCH[1] + 1 ))
+      elif [[ "$_p" =~ ^[0-9]+$ ]]; then n_res=$(( n_res + 1 )); fi
+    done
+    unset _parts _p
+  fi
+  n_pool_layers=$(( 40 - n_res )); (( n_pool_layers < 0 )) && n_pool_layers=0
+  tot=$(awk -v s="$LK_POOL_SLOTS" -v n="$n_pool_layers" -v b="$bytes_slot" \
+        'BEGIN{printf "%.2f", s*n*b/1024/1024/1024}')
+  mib_slot=$(awk -v b="$bytes_slot" 'BEGIN{printf "%.2f", b/1024/1024}')
+  chk_ok "池 slab ≈ ${tot} GiB/卡 (ep_size=${ep_size}: ${LK_POOL_SLOTS} 槽 × ${n_pool_layers} 层 × ${mib_slot} MiB/槽)"
+  (( n_pool_layers == 0 )) && chk_warn "按 resident 列表('${LK_GPU_RESIDENT_MOE_LAYERS}')算出池层数 = 0, 池不会覆盖任何层"
+fi
+
+echo "--------------------------------------------------------------"
+if (( PREFLIGHT_FAIL > 0 )); then echo " Preflight: ${PREFLIGHT_FAIL} 项失败"; else echo " Preflight: 全部通过"; fi
+echo "--------------------------------------------------------------"
+
+# -----------------------------------------------------------------------------
+# 9. Dry-run
+# -----------------------------------------------------------------------------
+if [[ "$MODE" == "dry-run" ]]; then
+  write_snapshot
+  echo " 快照已写: $SNAP_FILE"
+  echo "=============================================================="
+  echo " 将要执行的环境与命令 (--dry-run, 未启动):"
+  echo "=============================================================="
+  echo; echo "# --- 环境变量 (导出) ---"; sorted_env_lines
+  echo; echo "# --- 必须保持未设 ---"
+  for k in $(printf '%s\n' "${!UNSET_NOTE[@]}" | LC_ALL=C sort); do printf '# (不设) %s —— %s\n' "$k" "${UNSET_NOTE[$k]}"; done
+  echo; echo "# --- 命令 ---"; echo "$(quote_cmd "${FULL_CMD[@]}")"
+  echo; echo "# --- 日志将落 ---"; echo "#   $LOG_FILE"; echo "#   $LOG_LINK  (软链)"
+  echo; echo "# --- 就绪后自检将断言 ---"
+  echo "#   必须出现: $SELFCHECK_EXPECT_STR"
+  echo "#   禁止出现: $SELFCHECK_FORBID_STR"
+  echo
+  if (( PREFLIGHT_FAIL > 0 )); then echo "⚠ 有 ${PREFLIGHT_FAIL} 项 preflight 失败, 真实启动前必须解决。"; exit 1; fi
+  echo "✅ dry-run 完成, preflight 全绿。"
+  exit 0
+fi
+
+# -----------------------------------------------------------------------------
+# 10. 硬门槛 + 启动
+# -----------------------------------------------------------------------------
+(( PREFLIGHT_FAIL > 0 )) && die "preflight 有 ${PREFLIGHT_FAIL} 项失败, 拒绝启动。修正后重试, 或先用 --dry-run 查看。"
+log "preflight 通过, 准备启动"
+
+export_env_vars
+export PYTHONUNBUFFERED=1
+write_snapshot
+ln -sfn "$(basename "$LOG_FILE")" "$LOG_LINK" 2>/dev/null || true
+
+dump_header() {
+  {
+    echo "==================== Lsglang serve 启动记录 【定稿版】 ===================="
+    echo "时间          : $(ts)"
+    echo "主机          : $(hostname)"
+    echo "调用者        : ${USER:-$(id -un)}"
+    echo "脚本          : $SCRIPT_PATH"
+    echo "conf          : $CONF_LOADED"
+    echo "配置快照      : $SNAP_FILE"
+    echo "日志          : $LOG_FILE"
+    echo "PID 文件      : $PID_FILE"
+    echo "方案          : resident=${LK_GPU_RESIDENT_MOE_LAYERS} (W4A8) + pool=${LK_POOL_SLOTS} 槽 (W4A16 等价)"
+    # 环境被改过的可追溯提示 (lead 要求写进日志头) —— 不影响任何启动参数
+    echo "[ENV-PATCH] flashinfer/fused_moe/prepare.py: _process_humming_mxfp4_w4a8_payload 已改为 int32+按专家分块 (bit-equivalent, .orig 已备份, 回滚见 /mnt/SSD01/models/.llm-env/humming/patches/rollback_humming_w4a8_prepare_patch.sh)"
+    echo "[ENV-PATCH-2] sglang 两文件作用域补丁 _eager_decode_prewarm 已应用 (预热 DECODE → _cpu_decode), 回滚见 /mnt/SSD01/models/.llm-env/humming/patches/rollback_sglang_dsv41_eager_decode_prewarm_scope.sh"
+    echo "[ENV-CHANGE] FLASHINFER_USE_CUDA_NORM 1→0; norm 由 CUDA-JIT 切到 CuTe-DSL; no-op PDL 不变"
+    echo "[ENV-CHANGE] chunked-prefill-size 8192→16384; 目的: 令 SuperChunk 注意力 wrapper 的安装门 16384>16384 为假 (attention_backend_setup.py:131-140), 绕开 _flash_mla_with_kvcache_sched_meta 在 eager DECODE 预热下的 SIGSEGV"
+    echo "[ENV-CHANGE] (上一条已被备选A取代并回退为 8192) LK_GPU_PREFILL_MIN_TOKENS 1024→0; 关闭 GPU-prefill 档 ⇒ get_super_chunk_size()=0 ⇒ SuperChunk 注意力 wrapper 不安装(解 #7 SIGSEGV); 不再 probe staging 驱动; max_num_batched_tokens 保持 8192"
+    echo "[ENV-CHANGE] SGLANG_DSV41_SKIP_CAPTURE_PREWARM=1; 跳过 prepare_before_cuda_graph_capture 的 eager DECODE 预热块(8 轮全部崩在该块内); 风险: 同构 4×H100 无跨架构编译时点差, 最坏是首次 capture 冷编译变慢"
+    echo "[ENV-CHANGE] SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE=1; 把 _flashinfer_autotune 的 DECODE dummy 前向标记为 eager decode-prewarm ⇒ 非 resident 层走 _cpu_decode(解 #10 的 autotune 段 _cpu_prefill 段错误); 与 SKIP 门语义独立"
+    echo "[ENV-CHANGE] 新增 --disable-flashinfer-autotune; 目的: autotune 的 dummy 前向连崩两次(#10 MoE _cpu_prefill / #11 attention flash_mla), 且它只是内核调参 pass 非服务必需"
+    echo "[ENV-CHANGE] 新增 --swa-full-tokens-ratio 0.1(对齐厂商模板; 排除 SWA 池尺寸因素, 预期无效作单变量排除); 注意 SWA 池变大 ⇒ KV footprint 上升"
+    echo "[ENV-CHANGE] 2026-10-23 W4A8→W4A16 对照轮: 不传 --flashinfer-mxfp4-moe-precision ⇒ 用默认 default; 非 fp8 ⇒ W4A16 (厂商口径, launch/ 17/17 均不传); 自检判据已随之对调 (EXPECT=W4A16, FORBID=W4A8), 与历史各轮相反"
+    echo "[判据] 生效凭据 = '[prewarm-skip]' 行出现 且 '[attn-prewarm] rank=N done: **0** dummy forward(s)' ×4; done 计数 ≠0 而 [prewarm-skip] 也在 ⇒ 两条路都跑了, 异常"
+    echo "--------------------------------------------------------------"
+    echo "CUDA_DEVICE_ORDER=$CUDA_DEVICE_ORDER"
+    echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+    sorted_env_lines
+    echo "--------------------------------------------------------------"
+    echo "完整命令:"; echo "  $(quote_cmd "${FULL_CMD[@]}")"
+    echo "就绪后自检断言: 必须含 '$SELFCHECK_EXPECT_STR' 且不含 '$SELFCHECK_FORBID_STR'"
+    echo "=============================================================="
+  } >> "$LOG_FILE"
+}
+
+if [[ "$MODE" == "foreground" ]]; then
+  dump_header
+  log "前台运行 (Ctrl-C 停止)。日志同时写: $LOG_FILE"
+  exec "${FULL_CMD[@]}" 2>&1 | tee -a "$LOG_FILE"
+  exit "${PIPESTATUS[0]}"
+fi
+
+dump_header
+log "GPU 可见: CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
+setsid "${FULL_CMD[@]}" >>"$LOG_FILE" 2>&1 </dev/null &
+launched_pid=$!
+
+sleep 3
+if ! kill -0 "$launched_pid" 2>/dev/null; then
+  log_err "进程启动后立即退出 (PID ${launched_pid})。日志尾部:"
+  tail -n "$STATUS_TAIL_LINES" "$LOG_FILE" >&2 || true
+  die "启动失败, 详见 $LOG_FILE"
+fi
+
+actual_pgid="$(ps -o pgid= -p "$launched_pid" 2>/dev/null | tr -d ' ' || true)"; : "${actual_pgid:=$launched_pid}"
+{
+  echo "# 由 serve_dsv41_tp4_h100.sh 自动生成 —— 停止脚本只操作这里记录的 PID/PGID"
+  # ⚠ 必须用 %q 引用: START_TS 含空格 ("2026-10-22 16:11:50"), 裸 %s 会让
+  #   `source <pidfile>` 把 "16:11:50" 当命令执行 → 停止脚本报
+  #   "line 4: 16:11:50: command not found" 并**拒绝杀进程** (2026-10-22 实测踩到)。
+  printf 'PID=%q\nPGID=%q\nSTART_TS=%q\nPORT=%q\nLOG_FILE_RECORDED=%q\nSNAP_FILE=%q\nLAUNCHER_PID=%q\n' \
+    "$launched_pid" "$actual_pgid" "$(ts)" "$PORT" "$LOG_FILE" "$SNAP_FILE" "$$"
+} > "$PID_FILE"
+
+log "已拉起 PID=${launched_pid} PGID=${actual_pgid}, 日志: $LOG_FILE"
+log "PID 记录: $PID_FILE"
+
+if [[ "$WAIT_FOR_READY" -eq 0 ]]; then
+  log "--no-wait: 立刻返回。就绪后跑: $0 --self-check"
+  exit 0
+fi
+
+# -----------------------------------------------------------------------------
+# 11. 等待就绪
+# -----------------------------------------------------------------------------
+log "等待 /health 就绪 (上限 ${STARTUP_TIMEOUT_S}s; 475 GiB 权重从 NFS 冷读 + 上池较慢, 属正常)…"
+deadline=$(( SECONDS + STARTUP_TIMEOUT_S )); last_note=-1
+while (( SECONDS < deadline )); do
+  if ! kill -0 "$launched_pid" 2>/dev/null; then
+    log_err "进程已退出 (PID ${launched_pid})。日志尾部:"
+    tail -n "$STATUS_TAIL_LINES" "$LOG_FILE" >&2 || true
+    rm -f "$PID_FILE"
+    die "启动过程中进程死亡, 详见 $LOG_FILE"
+  fi
+  if curl -sf -m "$HEALTH_CURL_TIMEOUT_S" "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+    log "✅ /health 就绪, 耗时约 $(( STARTUP_TIMEOUT_S - (deadline - SECONDS) ))s。端点 http://${HOST}:${PORT}"
+    run_self_check "$LOG_FILE"
+    sc=$?
+    echo
+    if (( sc == 0 )); then log "下一步: ./status.sh  |  ./health.sh (含最小 chat 推理)"; exit 0
+    else log_err "⚠ 服务已就绪但 W4A8 自检失败 —— 开关可能没生效, 请先按上面提示排查"; exit 1; fi
+  fi
+  note=$(( (deadline - SECONDS) / 60 ))
+  if (( note != last_note )); then
+    log "  仍在加载… 剩余约 ${note} 分钟 (日志尾: $(tail -n 1 "$LOG_FILE" 2>/dev/null | cut -c1-110))"; last_note=$note
+  fi
+  sleep 5
+done
+
+log_err "等待 /health 超过 ${STARTUP_TIMEOUT_S}s 仍未就绪。进程仍在 (PID ${launched_pid})。"
+tail -n "$STATUS_TAIL_LINES" "$LOG_FILE" >&2 || true
+die "超时。可用 ./status.sh 查看 / ./stop_dsv41_tp4_h100.sh 停止。日志: $LOG_FILE"

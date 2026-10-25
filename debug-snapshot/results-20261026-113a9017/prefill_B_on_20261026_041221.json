@@ -1,0 +1,24 @@
+{
+ "tag": "B_on",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16684,
+ "runs": [
+  {
+   "case": "long",
+   "salt": 0,
+   "wall_s": 2.6319825649261475,
+   "prompt_tokens": 16688,
+   "tok_s": 6340.467532872225,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "salt": 0,
+   "wall_s": 0.45485925674438477,
+   "prompt_tokens": 13,
+   "tok_s": 28.580269187102754,
+   "completion_tokens": 1
+  }
+ ]
+}

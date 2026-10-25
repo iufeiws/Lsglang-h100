@@ -1,0 +1,55 @@
+ls: write error: Broken pipe
+### 2026-10-26_03:46:10 轮次=A_off  serve 日志=/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_032323.log
+### 生效快照 /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.effective.20261026_032323.conf 里的缓存键:
+export LK_GPU_CACHE_PRECISION=fp8
+export LK_GPU_CACHE_PREFETCH_CTAS=0
+export LK_GPU_CACHE_SLOTS=104
+# (空) LK_GPU_CACHE_STAGING
+#   LK_GPU_CACHE_SLOTS: layer
+### 2026-10-26_03:46:10 1/5 纯 prefill (单 prompt ~17k token, max_tokens=1; 服务空闲)
+[transformers] You are using a model of type `deepseek_v41` to instantiate a model of type ``. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+ long: prompt_tokens=16688 wall=2.622s prefill=6364.8 tok/s
+short: prompt_tokens=13 wall=0.466s prefill=27.9 tok/s
+json: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_113a9017/prefill_A_off_20261026_034628.json
+### 2026-10-26_03:46:29 2/5 单流 bench k=1 mt=1000 temp=0.7
+  "vram_max_mib": {
+    "gpu4": 78040,
+    "gpu5": 78114,
+    "gpu6": 78114,
+    "gpu7": 77754
+  }
+}
+[2026-10-26T03:46:38+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_113a9017/bench_A_off_single_20261026_034629.json
+### 2026-10-26_03:46:38 3/5 复述 recall_margin n=50 (贪心+logprob)
+   49: OK   0.62s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   50: OK   0.65s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+
+不同输出种类: 1  多数输出 x50  错误率(不含 expect): 0/50
+
+落盘: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_113a9017/recall_margin_A_off_20261026_034638.jsonl
+### 2026-10-26_03:47:12 4/5 工具调用 1 次
+A_off finish: tool_calls | tool_calls: [{"id": "call_8fd7a6a1a2cf4285af89a9d2", "index": 0, "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"北京\" | usage: {'prompt_tokens': 271, 'total_tokens': 310, 'completion_tokens': 39, 'prompt_tokens_details': None, 'reasoning_tokens': 0}
+### 2026-10-26_03:47:13 5/5 多流 bench k=4 mt=500 temp=0.7
+  "vram_max_mib": {
+    "gpu4": 78042,
+    "gpu5": 78118,
+    "gpu6": 78118,
+    "gpu7": 77758
+  }
+}
+[2026-10-26T03:47:27+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_113a9017/bench_A_off_k4_20261026_034714.json
+### 2026-10-26_03:47:27 6/6 抓本轮新增的 [gpu-expert-cache] 两行 (TP0 EP0)
+--- 新格式两行 (全 rank, 最近 12 条) ---
+[2026-10-26 03:45:50 TP2 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=1 p99.9=1; > staging(4): 0.00% of 20; histogram [(0, 16), (1, 4)]
+[2026-10-26 03:45:50 TP1 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=1 p99.9=1; > staging(4): 0.00% of 20; histogram [(0, 15), (1, 5)]
+[2026-10-26 03:45:50 TP3 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=1 p99.9=1; > staging(4): 0.00% of 20; histogram [(0, 16), (1, 4)]
+[2026-10-26 03:45:50 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=1 p99.9=1; > staging(4): 0.00% of 20; histogram [(0, 15), (1, 5)]
+[2026-10-26 03:46:51 TP1 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=2 p99=4 p99.9=6; > staging(4): 0.82% of 10800; histogram [(0, 6679), (1, 2700), (2, 882), (3, 324), (4, 126), (5, 60), (6, 19), (7, 8), (9, 2)]
+[2026-10-26 03:46:51 TP2 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=2 p99=4 p99.9=6; > staging(4): 0.81% of 10800; histogram [(0, 6717), (1, 2554), (2, 937), (3, 379), (4, 125), (5, 60), (6, 23), (7, 3), (8, 2)]
+[2026-10-26 03:46:51 TP3 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=2 p99=4 p99.9=6; > staging(4): 0.74% of 10800; histogram [(0, 6850), (1, 2511), (2, 887), (3, 352), (4, 120), (5, 53), (6, 22), (7, 3), (8, 2)]
+[2026-10-26 03:46:51 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=2 p99=4 p99.9=6; > staging(4): 0.83% of 10800; histogram [(0, 6761), (1, 2663), (2, 848), (3, 321), (4, 117), (5, 63), (6, 18), (7, 6), (8, 2), (10, 1)]
+[2026-10-26 03:47:21 TP1 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=4 p99=9 p99.9=13; > staging(4): 9.56% of 6200; histogram [(0, 4784), (1, 165), (2, 209), (3, 218), (4, 231), (5, 181), (6, 160), (7, 101), (8, 60), (9, 31), (10, 25), (11, 19), (12, 5), (13, 5), (14, 5), (15, 1)]
+[2026-10-26 03:47:21 TP3 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=4 p99=9 p99.9=12; > staging(4): 8.71% of 6260; histogram [(0, 4759), (1, 216), (2, 237), (3, 248), (4, 255), (5, 191), (6, 141), (7, 84), (8, 55), (9, 35), (10, 20), (11, 9), (12, 5), (13, 4), (14, 1)]
+[2026-10-26 03:47:21 TP2 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=4 p99=9 p99.9=12; > staging(4): 8.58% of 6260; histogram [(0, 4760), (1, 213), (2, 246), (3, 241), (4, 263), (5, 193), (6, 129), (7, 93), (8, 54), (9, 36), (10, 17), (11, 8), (12, 3), (13, 3), (14, 1)]
+[2026-10-26 03:47:21 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=5 p99=9 p99.9=13; > staging(4): 10.05% of 6280; histogram [(0, 4796), (1, 181), (2, 215), (3, 232), (4, 225), (5, 198), (6, 165), (7, 110), (8, 66), (9, 32), (10, 29), (11, 12), (12, 6), (13, 9), (14, 4)]
+### 2026-10-26_03:47:27 完成 tag=A_off

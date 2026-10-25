@@ -1,0 +1,22 @@
+########## 2026-10-26_03:23:23 起服务 tag=A_off
+########## serve exit=2
+[2026-10-26 03:38:48]   仍在加载… 剩余约 44 分钟 (日志尾: [2026-10-26 03:35:52 TP2 EP1] [attn-prewarm] rank=2 buffers ok (input_ids=96 seq_lens=16, per_req_tokens=6))
+[2026-10-26 03:39:49]   仍在加载… 剩余约 43 分钟 (日志尾: [TensorRT-LLM][INFO] Set logger level to INFO)
+[2026-10-26 03:40:49]   仍在加载… 剩余约 42 分钟 (日志尾: [TensorRT-LLM][INFO] Set logger level to INFO)
+[2026-10-26 03:41:49]   仍在加载… 剩余约 41 分钟 (日志尾: [TensorRT-LLM][INFO] Set logger level to INFO)
+[2026-10-26 03:42:49]   仍在加载… 剩余约 40 分钟 (日志尾:   0%|          | 0/12 [00:00<?, ?it/s]Capturing batches (bs=16 avail_mem=7.76 GB):   0%|          | 0/12 [00)
+[2026-10-26 03:43:49]   仍在加载… 剩余约 39 分钟 (日志尾: [2026-10-26 03:43:42 TP2 EP1] Allocating 1.51 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layer)
+[2026-10-26 03:44:49]   仍在加载… 剩余约 38 分钟 (日志尾: [2026-10-26 03:44:49] INFO:     127.0.0.1:53414 - "GET /health HTTP/1.1" 503 Service Unavailable)
+[2026-10-26 03:44:55] ✅ /health 就绪, 耗时约 1269s。端点 http://0.0.0.0:18010
+
+==============================================================
+ 启动后自检 · W4A8 开关是否生效
+==============================================================
+ 日志: /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_032323.log
+--------------------------------------------------------------
+1) 期望串 [LK_GPU_CACHE_SLOTS: layer] 命中行数: 80  (硬门槛 >= 1)
+  [ OK ]   ✓ 建池成功 (EXPECT 串出现)
+           [2026-10-26 03:33:34 TP2 EP1] LK_GPU_CACHE_SLOTS: layer 20: 100 VRAM slots + 4 staging (0.91 GiB, W4A8), 192 experts pinned on host (3.36 GiB, checkpoint + slot layouts), prefetch off
+           [2026-10-26 03:33:34 TP3 EP1] LK_GPU_CACHE_SLOTS: layer 20: 100 VRAM slots + 4 staging (0.91 GiB, W4A8), 192 experts pinned on host (3.36 GiB, checkpoint + slot layouts), prefetch off
+           [2026-10-26 03:33:34 TP1 EP0] LK_GPU_CACHE_SLOTS: layer 20: 100 VRAM slots + 4 staging (0.91 GiB, W4A8), 192 experts pinned on host (3.36 GiB, checkpoint + slot layouts), prefetch off
+grep: write error: Broken pipe
