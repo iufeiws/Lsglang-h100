@@ -1,0 +1,245 @@
+F.F.                                                                     [100%]
+=================================== FAILURES ===================================
+____ test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False] ____
+
+setup = ((tensor([[[106, 152, 249,  ..., 205,  96, 216],
+         [ 60, 175, 164,  ...,  78, 165, 230],
+         [234, 164,  8...u_limit=tensor([10., 10., 10., 10., 10., 10.], device='cuda:0'), limit=10.0, tp_size=1, tp_rank=0, fc2_act_scale=None))
+graph = False
+
+    @pytest.mark.parametrize("graph", [False, True])
+    def test_hits_admitted_and_overflow_misses_match_the_reference(setup, graph):
+        from sglang.kernels.ops.moe.lk_verify_uva import STAT_ADMITTED, STAT_ROW_HITS
+    
+        experts, cache, buffers, params = setup
+        # Rows 0..1 routed on every row, plus misses drawn from experts R..E-1.
+        ids = torch.stack([torch.cat([torch.tensor([0, 1]), R + torch.randperm(E - R)[:K - 2]])
+                           for _ in range(ROWS)]).int()
+        ids[::2, -1] = -1  # EP-remote routes
+        x = torch.randn(ROWS, H).bfloat16()
+        weights = torch.rand(ROWS, K)
+        expected = _reference(x, ids, weights, *experts, LIMIT)
+        # From an empty cache too, where every route misses.
+        for empty in (False, True):
+            if empty:
+                cache.slot_of.fill_(-1)
+                cache.row_expert.fill_(-1)
+            _close(_run(cache, buffers, params, ids, x, weights, graph), expected, cache.fp8)
+            _consistent(cache)
+        # Repeating the forward hits what the first one admitted.
+        stats0 = cache.stats.clone()
+>       _close(_run(cache, buffers, params, ids, x, weights, graph), expected, cache.fp8)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test/manual/layers/test_gpu_expert_cache_forward.py:121: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test/manual/layers/test_gpu_expert_cache_forward.py:86: in _run
+    out = cache_forward(cache, hidden_states=x.cuda(), topk_ids=ids.cuda(),
+../Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py:419: in cache_forward
+    return _eager_forward(cache, x=x, topk_ids=topk_ids, topk_weights=topk_weights,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cache = <sglang.srt.layers.moe.gpu_expert_cache.LayerCache object at 0x7fa05ac6af60>
+x = tensor([[ 0.5039,  0.0500, -1.1172,  ..., -0.0540, -0.4844,  0.4297],
+        [ 0.9023, -1.8047,  0.6406,  ...,  0.390...],
+        [ 1.7031,  1.4766, -1.8281,  ..., -2.3906,  1.5625, -1.0391]],
+       device='cuda:0', dtype=torch.bfloat16)
+topk_ids = tensor([[ 0,  1,  7, -1],
+        [ 0,  1, 10,  8],
+        [ 0,  1,  6, -1],
+        [ 0,  1,  8,  6],
+        [ 0,  ... 8],
+        [ 0,  1,  9, -1],
+        [ 0,  1, 11,  6],
+        [ 0,  1,  7, -1]], device='cuda:0', dtype=torch.int32)
+topk_weights = tensor([[0.1950, 0.4068, 0.3890, 0.0252],
+        [0.7915, 0.1898, 0.0807, 0.1499],
+        [0.4396, 0.0202, 0.4132, 0... 0.9170, 0.6837],
+        [0.7199, 0.6475, 0.4006, 0.1353],
+        [0.7213, 0.6694, 0.6991, 0.2106]], device='cuda:0')
+params = MoeParams(swiglu_limit=tensor([10., 10., 10., 10., 10., 10.], device='cuda:0'), limit=10.0, tp_size=1, tp_rank=0, fc2_act_scale=None)
+
+    def _eager_forward(cache, *, x, topk_ids, topk_weights, params: MoeParams):
+        """Any batch outside a graph: admit every miss, in groups when rows run short."""
+        ids = topk_ids.long()
+        local = ids >= 0
+        counts = torch.bincount(ids[local], minlength=cache.num_experts)
+        cache.score.mul_(cache.score_decay).add_(counts.to(torch.float32))
+        routed = counts > 0
+        missing = torch.nonzero(routed & (cache.slot_of < 0)).squeeze(1)
+        missing = missing[torch.argsort(cache.score[missing], descending=True)]
+        holder = cache.row_expert.long()
+        victim_key = torch.where(holder >= 0, cache.score[holder.clamp(min=0)], -1.0)
+        victim_key = torch.where(routed[holder.clamp(min=0)] & (holder >= 0), float("inf"),
+                                 victim_key)
+        victims = torch.argsort(victim_key)[: int((victim_key < float("inf")).sum())]
+        missing, victims = missing.tolist(), victims.tolist()
+        skip = cache.num_rows
+        out = None
+        group_size = max(len(victims), 1)
+        for start in range(0, max(len(missing), 1), group_size):
+            group = missing[start:start + group_size]
+>           assert not group or victims, "no evictable row: every row's expert is routed"
+                   ^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: no evictable row: every row's expert is routed
+
+../Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py:388: AssertionError
+____ test_hits_admitted_and_overflow_misses_match_the_reference[fp8-False] _____
+
+setup = ((tensor([[[106, 152, 249,  ..., 205,  96, 216],
+         [ 60, 175, 164,  ...,  78, 165, 230],
+         [234, 164,  8...., 10., 10., 10., 10.], device='cuda:0'), limit=10.0, tp_size=1, tp_rank=0, fc2_act_scale=tensor(1., device='cuda:0')))
+graph = False
+
+    @pytest.mark.parametrize("graph", [False, True])
+    def test_hits_admitted_and_overflow_misses_match_the_reference(setup, graph):
+        from sglang.kernels.ops.moe.lk_verify_uva import STAT_ADMITTED, STAT_ROW_HITS
+    
+        experts, cache, buffers, params = setup
+        # Rows 0..1 routed on every row, plus misses drawn from experts R..E-1.
+        ids = torch.stack([torch.cat([torch.tensor([0, 1]), R + torch.randperm(E - R)[:K - 2]])
+                           for _ in range(ROWS)]).int()
+        ids[::2, -1] = -1  # EP-remote routes
+        x = torch.randn(ROWS, H).bfloat16()
+        weights = torch.rand(ROWS, K)
+        expected = _reference(x, ids, weights, *experts, LIMIT)
+        # From an empty cache too, where every route misses.
+        for empty in (False, True):
+            if empty:
+                cache.slot_of.fill_(-1)
+                cache.row_expert.fill_(-1)
+            _close(_run(cache, buffers, params, ids, x, weights, graph), expected, cache.fp8)
+            _consistent(cache)
+        # Repeating the forward hits what the first one admitted.
+        stats0 = cache.stats.clone()
+>       _close(_run(cache, buffers, params, ids, x, weights, graph), expected, cache.fp8)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test/manual/layers/test_gpu_expert_cache_forward.py:121: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test/manual/layers/test_gpu_expert_cache_forward.py:86: in _run
+    out = cache_forward(cache, hidden_states=x.cuda(), topk_ids=ids.cuda(),
+../Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py:419: in cache_forward
+    return _eager_forward(cache, x=x, topk_ids=topk_ids, topk_weights=topk_weights,
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cache = <sglang.srt.layers.moe.gpu_expert_cache.LayerCache object at 0x7fa05dbc1a60>
+x = tensor([[ 0.5039,  0.0500, -1.1172,  ..., -0.0540, -0.4844,  0.4297],
+        [ 0.9023, -1.8047,  0.6406,  ...,  0.390...],
+        [ 1.7031,  1.4766, -1.8281,  ..., -2.3906,  1.5625, -1.0391]],
+       device='cuda:0', dtype=torch.bfloat16)
+topk_ids = tensor([[ 0,  1,  7, -1],
+        [ 0,  1, 10,  8],
+        [ 0,  1,  6, -1],
+        [ 0,  1,  8,  6],
+        [ 0,  ... 8],
+        [ 0,  1,  9, -1],
+        [ 0,  1, 11,  6],
+        [ 0,  1,  7, -1]], device='cuda:0', dtype=torch.int32)
+topk_weights = tensor([[0.1950, 0.4068, 0.3890, 0.0252],
+        [0.7915, 0.1898, 0.0807, 0.1499],
+        [0.4396, 0.0202, 0.4132, 0... 0.9170, 0.6837],
+        [0.7199, 0.6475, 0.4006, 0.1353],
+        [0.7213, 0.6694, 0.6991, 0.2106]], device='cuda:0')
+params = MoeParams(swiglu_limit=tensor([10., 10., 10., 10., 10., 10.], device='cuda:0'), limit=10.0, tp_size=1, tp_rank=0, fc2_act_scale=tensor(1., device='cuda:0'))
+
+    def _eager_forward(cache, *, x, topk_ids, topk_weights, params: MoeParams):
+        """Any batch outside a graph: admit every miss, in groups when rows run short."""
+        ids = topk_ids.long()
+        local = ids >= 0
+        counts = torch.bincount(ids[local], minlength=cache.num_experts)
+        cache.score.mul_(cache.score_decay).add_(counts.to(torch.float32))
+        routed = counts > 0
+        missing = torch.nonzero(routed & (cache.slot_of < 0)).squeeze(1)
+        missing = missing[torch.argsort(cache.score[missing], descending=True)]
+        holder = cache.row_expert.long()
+        victim_key = torch.where(holder >= 0, cache.score[holder.clamp(min=0)], -1.0)
+        victim_key = torch.where(routed[holder.clamp(min=0)] & (holder >= 0), float("inf"),
+                                 victim_key)
+        victims = torch.argsort(victim_key)[: int((victim_key < float("inf")).sum())]
+        missing, victims = missing.tolist(), victims.tolist()
+        skip = cache.num_rows
+        out = None
+        group_size = max(len(victims), 1)
+        for start in range(0, max(len(missing), 1), group_size):
+            group = missing[start:start + group_size]
+>           assert not group or victims, "no evictable row: every row's expert is routed"
+                   ^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: no evictable row: every row's expert is routed
+
+../Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py:388: AssertionError
+=============================== warnings summary ===============================
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py:3459: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/moe_w4a16_kernel.py:2386: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:29: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:31: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:34: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:968: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:970: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:427: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    epi_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:2391: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gemm/kernels/cute_dsl/low_latency_blockscaled_gemm.py:102: DeprecationWarning: cutlass.utils.smem_allocator.get_smem_capacity_in_bytes is deprecated; use cutlass.memory.get_smem_capacity_in_bytes instead. It will be removed in a future release.
+    _SMEM_CAPACITY_BYTES = cutlass.utils.get_smem_capacity_in_bytes("sm_100")
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_rubin.py:218: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_chunked.py:95: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gdn_kernels/delta_rule_dsl/collective_store_tma.py:6: DeprecationWarning: cutlass.utils.tensormap_manager.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils.tensormap_manager import TensorMapManager, TensorMapUpdateMode
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_cp_prefill.py:55: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/cute_dsl/availability.py:136: DeprecationWarning: Arch from arch.py is deprecated. Use Arch from enums.py instead.
+    from cutlass.base_dsl.arch import Arch
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED test/manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+FAILED test/manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[fp8-False]
+2 failed, 2 passed, 19 warnings in 23.22s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

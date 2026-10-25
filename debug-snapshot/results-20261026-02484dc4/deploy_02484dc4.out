@@ -1,0 +1,8 @@
+OK   kernels/ops/moe/lk_verify_uva.py  md5=dbf00ef3049a645d27a3ed25f7e06d13
+OK   srt/layers/moe/fused_moe_triton/layer.py  md5=470974a681f12332c0b9879ec9529fe0
+OK   srt/layers/moe/gpu_expert_cache.py  md5=0cdabcd526370cddb4df5cbfcbafb1f3
+OK   srt/utils/lk_moe_env.py  md5=6e76de74a98cca3d174b3664cfc7e34c
+OK   srt/models/deepseek_v2.py  md5=ba98318fe7b9048fe48dbd4a17be0db3
+OK   srt/model_executor/runner_backend/full_cuda_graph_backend.py  md5=2842d25e9ad6e25c065bdf58516c8e38
+--- __pycache__ 残留检查 (应为空) ---
+deploy done: tag=113a9017e4 -> 02484dc460

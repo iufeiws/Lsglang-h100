@@ -1,0 +1,107 @@
+### 2026-10-26_05:10:49 1/5 切到 02484dc4
+Switched to a new branch 'diagnose/02484dc4-logs-20261026'
+02484dc460 GPU expert cache: misses are admitted into cache rows; drop prefetch and swaps
+### 2026-10-26_05:10:49 2/5 部署 6 个 .py
+OK   kernels/ops/moe/lk_verify_uva.py  md5=dbf00ef3049a645d27a3ed25f7e06d13
+OK   srt/layers/moe/fused_moe_triton/layer.py  md5=470974a681f12332c0b9879ec9529fe0
+OK   srt/layers/moe/gpu_expert_cache.py  md5=0cdabcd526370cddb4df5cbfcbafb1f3
+OK   srt/utils/lk_moe_env.py  md5=6e76de74a98cca3d174b3664cfc7e34c
+OK   srt/models/deepseek_v2.py  md5=ba98318fe7b9048fe48dbd4a17be0db3
+OK   srt/model_executor/runner_backend/full_cuda_graph_backend.py  md5=2842d25e9ad6e25c065bdf58516c8e38
+--- __pycache__ 残留检查 (应为空) ---
+deploy done: tag=113a9017e4 -> 02484dc460
+### 2026-10-26_05:10:49 3/5 全树核对
+repo .py files: 4511   differing: 0   missing in deploy: 94
+### 2026-10-26_05:10:54 4/5 单测
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED test/manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[bf16-False]
+FAILED test/manual/layers/test_gpu_expert_cache_forward.py::test_hits_admitted_and_overflow_misses_match_the_reference[fp8-False]
+2 failed, 2 passed, 19 warnings in 23.22s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+.............                                                            [100%]
+13 passed in 16.98s
+### 2026-10-26_05:11:38 5/5 单层基准 (bf16 与 fp8, 加 --rows-vram 108 --max-copy 8)
+  mode  rows   hit  ms/layer  x20 ms
+ graph     6  1.00     0.194    3.87
+ graph     6  0.98     0.195    3.90
+ graph     6  0.90     0.191    3.82
+ graph    12  1.00     0.269    5.38
+ graph    12  0.98     0.810   16.21
+ graph    12  0.90     0.628   12.55
+ graph    24  1.00     0.387    7.75
+ graph    24  0.98     0.390    7.80
+ graph    24  0.90     1.645   32.91
+ graph    48  1.00     0.531   10.62
+ graph    48  0.98     0.841   16.83
+ graph    48  0.90     9.944  198.89
+ graph    96  1.00     0.641   12.82
+ graph    96  0.98     2.322   46.44
+ graph    96  0.90    12.160  243.20
+ eager   128  1.00     1.261   25.21
+ eager   128  0.98     5.321  106.42
+ eager   128  0.90    13.646  272.91
+ eager   512  1.00     1.400   28.00
+Traceback (most recent call last):
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 139, in <module>
+    main()
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 130, in main
+    ms = bench(rows, hit, graph=False)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 121, in bench
+    return _time(run, iters, graph)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 63, in _time
+    fn()
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 117, in run
+    return cache_forward(cache, hidden_states=x, topk_ids=ids, topk_weights=w,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py", line 419, in cache_forward
+    return _eager_forward(cache, x=x, topk_ids=topk_ids, topk_weights=topk_weights,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py", line 388, in _eager_forward
+    assert not group or victims, "no evictable row: every row's expert is routed"
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: no evictable row: every row's expert is routed
+  mode  rows   hit  ms/layer  x20 ms
+ graph     6  1.00     0.190    3.80
+ graph     6  0.98     0.190    3.79
+ graph     6  0.90     0.186    3.71
+ graph    12  1.00     0.245    4.89
+ graph    12  0.98     0.791   15.81
+ graph    12  0.90     0.603   12.07
+ graph    24  1.00     0.331    6.63
+ graph    24  0.98     0.337    6.73
+ graph    24  0.90     1.589   31.78
+ graph    48  1.00     0.445    8.91
+ graph    48  0.98     0.764   15.28
+ graph    48  0.90     9.804  196.08
+ graph    96  1.00     0.513   10.25
+ graph    96  0.98     2.197   43.95
+ graph    96  0.90    12.166  243.32
+ eager   128  1.00     1.145   22.90
+ eager   128  0.98     5.364  107.28
+ eager   128  0.90    14.126  282.51
+ eager   512  1.00     1.202   24.03
+Traceback (most recent call last):
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 139, in <module>
+    main()
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 130, in main
+    ms = bench(rows, hit, graph=False)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 121, in bench
+    return _time(run, iters, graph)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 63, in _time
+    fn()
+  File "/mnt/SSD01/models/.llm-env/Lsglang-h100/debug-snapshot/scripts/bench_gpu_cache_kernel.py", line 117, in run
+    return cache_forward(cache, hidden_states=x, topk_ids=ids, topk_weights=w,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py", line 419, in cache_forward
+    return _eager_forward(cache, x=x, topk_ids=topk_ids, topk_weights=topk_weights,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py", line 388, in _eager_forward
+    assert not group or victims, "no evictable row: every row's expert is routed"
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: no evictable row: every row's expert is routed
+### 2026-10-26_05:12:43 完成
