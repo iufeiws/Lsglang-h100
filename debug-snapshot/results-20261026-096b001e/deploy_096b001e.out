@@ -1,0 +1,7 @@
+bash: /mnt/SSD01/models/.llm-env/Lsglang/env/lib/libtinfo.so.6: no version information available (required by bash)
+OK   srt/layers/moe/fused_moe_triton/layer.py  md5=92c8158d73222c384c54385a0ee7c362
+OK   kernels/ops/moe/lk_verify_uva.py  md5=4e07016dd000e71e869306fd0f76b1f9
+OK   srt/layers/moe/gpu_expert_cache.py  md5=38817136288486d1d0275fcafa75782f
+OK   srt/utils/lk_moe_env.py  md5=3356a20cf75d595c900bd34c518d6767
+--- __pycache__ 残留检查 (应为空) ---
+deploy done: tag=fa22186e1c -> 096b001e60

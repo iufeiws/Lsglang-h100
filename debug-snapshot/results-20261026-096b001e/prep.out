@@ -1,0 +1,147 @@
+### 2026-10-26_06:50:03 1/6 切到 096b001e
+Switched to a new branch 'diagnose/096b001e-logs-20261026'
+096b001e60 GPU expert cache: admission copy source on the GPU's NUMA node
+f476dad122 debug-snapshot: per-step DSPARK timeline analysis across TP ranks
+### 2026-10-26_06:50:03 2/6 部署 3 个运行期 .py
+bash: /mnt/SSD01/models/.llm-env/Lsglang/env/lib/libtinfo.so.6: no version information available (required by bash)
+OK   srt/layers/moe/fused_moe_triton/layer.py  md5=92c8158d73222c384c54385a0ee7c362
+OK   kernels/ops/moe/lk_verify_uva.py  md5=4e07016dd000e71e869306fd0f76b1f9
+OK   srt/layers/moe/gpu_expert_cache.py  md5=38817136288486d1d0275fcafa75782f
+OK   srt/utils/lk_moe_env.py  md5=3356a20cf75d595c900bd34c518d6767
+--- __pycache__ 残留检查 (应为空) ---
+deploy done: tag=fa22186e1c -> 096b001e60
+### 2026-10-26_06:50:03 3/6 全树核对
+repo .py files: 4511   differing: 0   missing in deploy: 94
+### 2026-10-26_06:50:08 4/6 H2D 拓扑测量 (服务已停, CUDA_VISIBLE_DEVICES 与 serve 相同)
+	[4mGPU0	GPU1	GPU2	GPU3	GPU4	GPU5	GPU6	GPU7	NIC0	NIC1	NIC2	NIC3	NIC4	NIC5	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	NV18	NV18	NV18	NV18	NV18	NV18	NV18	PIX	NODE	NODE	NODE	SYS	SYS	0-47,96-143	0		N/A
+GPU1	NV18	 X 	NV18	NV18	NV18	NV18	NV18	NV18	PIX	NODE	NODE	NODE	SYS	SYS	0-47,96-143	0		N/A
+GPU2	NV18	NV18	 X 	NV18	NV18	NV18	NV18	NV18	NODE	PIX	NODE	NODE	SYS	SYS	0-47,96-143	0		N/A
+GPU3	NV18	NV18	NV18	 X 	NV18	NV18	NV18	NV18	NODE	PIX	NODE	NODE	SYS	SYS	0-47,96-143	0		N/A
+GPU4	NV18	NV18	NV18	NV18	 X 	NV18	NV18	NV18	SYS	SYS	SYS	SYS	PIX	NODE	48-95,144-191	1		N/A
+GPU5	NV18	NV18	NV18	NV18	NV18	 X 	NV18	NV18	SYS	SYS	SYS	SYS	PIX	NODE	48-95,144-191	1		N/A
+GPU6	NV18	NV18	NV18	NV18	NV18	NV18	 X 	NV18	SYS	SYS	SYS	SYS	NODE	PIX	48-95,144-191	1		N/A
+GPU7	NV18	NV18	NV18	NV18	NV18	NV18	NV18	 X 	SYS	SYS	SYS	SYS	NODE	PIX	48-95,144-191	1		N/A
+NIC0	PIX	PIX	NODE	NODE	SYS	SYS	SYS	SYS	 X 	NODE	NODE	NODE	SYS	SYS				
+NIC1	NODE	NODE	PIX	PIX	SYS	SYS	SYS	SYS	NODE	 X 	NODE	NODE	SYS	SYS				
+NIC2	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	NODE	NODE	 X 	PIX	SYS	SYS				
+NIC3	NODE	NODE	NODE	NODE	SYS	SYS	SYS	SYS	NODE	NODE	PIX	 X 	SYS	SYS				
+NIC4	SYS	SYS	SYS	SYS	PIX	PIX	NODE	NODE	SYS	SYS	SYS	SYS	 X 	NODE				
+NIC5	SYS	SYS	SYS	SYS	NODE	NODE	PIX	PIX	SYS	SYS	SYS	SYS	NODE	 X 				
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)
+  PIX  = Connection traversing at most a single PCIe bridge
+  NV#  = Connection traversing a bonded set of # NVLinks
+
+NIC Legend:
+
+  NIC0: mlx5_0
+  NIC1: mlx5_1
+  NIC2: mlx5_2
+  NIC3: mlx5_3
+  NIC4: mlx5_4
+  NIC5: mlx5_5
+
+
+GPU -> NUMA node: {0: 1, 1: 1, 2: 1, 3: 1}
+
+== 单卡, 源内存在各节点 (GB/s, 256 MiB x 20)
+  GPU0 (local node 1): node 1 (page on 1):  46.8
+  GPU1 (local node 1): node 1 (page on 1):  45.7
+  GPU2 (local node 1): node 1 (page on 1):  42.9
+  GPU3 (local node 1): node 1 (page on 1):  40.9
+
+== 两两同时 (源在各卡本地节点), 每卡 GB/s 及相对单卡的比例
+  GPU0+GPU1:  27.7 /  27.8   (0.50 x 单卡)
+  GPU0+GPU2:  55.4 /  55.4   (1.00 x 单卡)
+  GPU0+GPU3:  55.2 /  40.6   (1.00 x 单卡)
+  GPU1+GPU2:  55.4 /  55.4   (1.00 x 单卡)
+  GPU1+GPU3:  55.3 /  47.9   (1.00 x 单卡)
+  GPU2+GPU3:  27.0 /  27.0   (0.49 x 单卡)
+
+== 全部同时: GPU0  27.7  GPU1  27.7  GPU2  27.0  GPU3  27.1
+
+建议: 让 TP0/TP1 = GPU0/GPU2, TP2/TP3 = GPU1/GPU3 (同组两卡同时拷贝时各自 1.00 / 1.00 x 单卡); 即把 CUDA_VISIBLE_DEVICES 按这个下标顺序重排 (下标指当前列表里的位置)。
+### 2026-10-26_06:50:33 5/6 单测
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/cute_dsl/availability.py:136: DeprecationWarning: Arch from arch.py is deprecated. Use Arch from enums.py instead.
+    from cutlass.base_dsl.arch import Arch
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 19 warnings in 17.00s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+.............                                                            [100%]
+13 passed in 17.81s
+### 2026-10-26_06:51:13 6/6 单层基准 (rows-vram 128 / max-copy 8, bf16 与 fp8)
+row source NUMA node 1 first pages on [1, 1, 1, 1]
+  mode  rows   hit  ms/layer  x20 ms
+ graph     6  1.00     0.161    3.23
+ graph     6  0.98     0.161    3.21
+ graph     6  0.90     0.162    3.23
+ graph    12  1.00     0.242    4.83
+ graph    12  0.98     0.791   15.82
+ graph    12  0.90     0.600   12.01
+ graph    24  1.00     0.361    7.22
+ graph    24  0.98     0.361    7.22
+ graph    24  0.90     1.654   33.08
+ graph    48  1.00     0.566   11.33
+ graph    48  0.98     0.874   17.47
+ graph    48  0.90     9.161  183.22
+ graph    96  1.00     0.720   14.40
+ graph    96  0.98     1.796   35.92
+ graph    96  0.90    12.243  244.87
+ eager   128  1.00     1.322   26.43
+ eager   128  0.98     3.843   76.86
+ eager   128  0.90     9.468  189.37
+ eager   512  1.00     1.430   28.60
+ eager   512  0.98     7.221  144.42
+ eager   512  0.90    15.806  316.12
+ eager  2048  1.00     2.915   58.29
+ eager  2048  0.98    17.928  358.55
+ eager  2048  0.90    19.991  399.83
+misses  rows  ms/layer   (graph, rows=6; > --max-copy 的部分走 UVA)
+     0     6     0.158
+     1     6     0.344
+     2     6     0.534
+     4     6     0.910
+     6     6     1.284
+     8     6     1.653
+row source NUMA node 1 first pages on [1, 1, 1, 1, 1, 1]
+  mode  rows   hit  ms/layer  x20 ms
+ graph     6  1.00     0.138    2.75
+ graph     6  0.98     0.136    2.72
+ graph     6  0.90     0.139    2.78
+ graph    12  1.00     0.199    3.99
+ graph    12  0.98     0.758   15.16
+ graph    12  0.90     0.565   11.30
+ graph    24  1.00     0.284    5.67
+ graph    24  0.98     0.285    5.70
+ graph    24  0.90     1.585   31.70
+ graph    48  1.00     0.444    8.88
+ graph    48  0.98     0.765   15.31
+ graph    48  0.90     9.122  182.44
+ graph    96  1.00     0.587   11.74
+ graph    96  0.98     1.633   32.67
+ graph    96  0.90    12.066  241.31
+ eager   128  1.00     1.476   29.52
+ eager   128  0.98     4.351   87.03
+ eager   128  0.90    10.979  219.58
+ eager   512  1.00     1.536   30.71
+ eager   512  0.98     8.367  167.33
+ eager   512  0.90    18.323  366.47
+ eager  2048  1.00     2.473   49.46
+ eager  2048  0.98    19.799  395.99
+ eager  2048  0.90    21.735  434.69
+misses  rows  ms/layer   (graph, rows=6; > --max-copy 的部分走 UVA)
+     0     6     0.134
+     1     6     0.329
+     2     6     0.519
+     4     6     0.897
+     6     6     1.269
+     8     6     1.639
+### 2026-10-26_06:52:13 完成

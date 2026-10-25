@@ -1,0 +1,64 @@
+{
+  "tag": "16k_rep_k16",
+  "started": "2026-10-26T07:20:43+08:00",
+  "k": 16,
+  "prompt_chars": 25000,
+  "max_tokens": 256,
+  "temperature": 0.7,
+  "wall_s": 4.862782955169678,
+  "vram_interval_s": 1.0,
+  "vram_samples": 5,
+  "prompt_tokens_per_stream": [
+    16163,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164,
+    16164
+  ],
+  "n_ok": 16,
+  "n_err": 0,
+  "errors": [],
+  "ttft": {
+    "p50": 1.533,
+    "p10": 1.521,
+    "p90": 1.56,
+    "n": 16
+  },
+  "decode_tok_s": {
+    "p50": 28.655,
+    "p10": 28.304,
+    "p90": 29.472,
+    "n": 16
+  },
+  "ms_step": {
+    "p50": 34.898,
+    "p10": 33.932,
+    "p90": 35.331,
+    "n": 16
+  },
+  "completion_tokens_sum": 3919,
+  "overlap_window": {
+    "window_s": 1.149,
+    "agg_tok_s": 456.97,
+    "n_streams": 16
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_rep_k16_20261026_072038.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_rep_k16_20261026_072038.csv",
+  "vram_max_mib": {
+    "gpu4": 77872,
+    "gpu5": 77926,
+    "gpu6": 77928,
+    "gpu7": 77686
+  }
+}

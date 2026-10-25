@@ -1,0 +1,81 @@
+### 2026-10-26_07:16:02 1/4 profile (num_steps=40, activities=GPU) 期间单流 k=1
+Start profiling.
+
+    "gpu7": 73350
+  }
+}
+[2026-10-26T07:16:19+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_prof_window_20261026_071602.json
+  traces: 4
+### 2026-10-26_07:16:39 2/4 干净 k=1 / k=4
+    "gpu7": 73352
+  }
+}
+[2026-10-26T07:16:46+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_k1_clean_20261026_071639.json
+    "gpu7": 73352
+  }
+}
+[2026-10-26T07:17:12+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_k4_clean_20261026_071706.json
+### 2026-10-26_07:17:32 3/4 16k 长上下文压测 2/8/16
+    "p10": 18.37,
+    "p90": 24.473,
+    "n": 2
+  },
+  "completion_tokens_sum": 512,
+  "overlap_window": {
+    "window_s": 1.339,
+    "agg_tok_s": 96.421,
+    "n_streams": 2
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k2_20261026_071732.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k2_20261026_071732.csv",
+  "vram_max_mib": {
+    "gpu4": 77844,
+    "gpu5": 77918,
+    "gpu6": 77920,
+    "gpu7": 77656
+  }
+}
+[2026-10-26T07:17:36+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k2_20261026_071732.json
+    "p10": 32.526,
+    "p90": 95.072,
+    "n": 8
+  },
+  "completion_tokens_sum": 2048,
+  "overlap_window": {
+    "window_s": 1.895,
+    "agg_tok_s": 158.962,
+    "n_streams": 8
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k8_20261026_071756.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k8_20261026_071756.csv",
+  "vram_max_mib": {
+    "gpu4": 77864,
+    "gpu5": 77920,
+    "gpu6": 77920,
+    "gpu7": 77660
+  }
+}
+[2026-10-26T07:18:06+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k8_20261026_071756.json
+    "p10": 53.521,
+    "p90": 148.275,
+    "n": 16
+  },
+  "completion_tokens_sum": 3949,
+  "overlap_window": {
+    "window_s": 1.591,
+    "agg_tok_s": 178.42,
+    "n_streams": 16
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k16_20261026_071826.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k16_20261026_071826.csv",
+  "vram_max_mib": {
+    "gpu4": 77868,
+    "gpu5": 77922,
+    "gpu6": 77922,
+    "gpu7": 77682
+  }
+}
+[2026-10-26T07:18:42+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_096b001e/bench_16k_k16_20261026_071826.json
+### 2026-10-26_07:19:02 4/4 抓缓存日志
+ls: write error: Broken pipe
+### 2026-10-26_07:19:02 完成
