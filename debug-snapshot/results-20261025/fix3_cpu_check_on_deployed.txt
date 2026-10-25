@@ -1,0 +1,5 @@
+[check] 被测文件(实际部署副本) = /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results/deployed-root/python/sglang/srt/layers/moe/fused_moe_triton/layer.py
+[check] 该文件存在 = True
+[check] md5 = 4684ad2e6242607d9fdac3a10a618db6
+............................                                             [100%]
+28 passed in 3.00s

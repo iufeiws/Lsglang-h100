@@ -1,0 +1,965 @@
+==================== Lsglang serve 启动记录 【定稿版】 ====================
+时间          : 2026-10-25 05:50:48
+主机          : H100-02
+调用者        : wangyf
+脚本          : /mnt/SSD01/models/.llm-env/Lsglang/scripts/serve_dsv41_tp4_h100.sh
+conf          : /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.conf
+配置快照      : /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.effective.20261025_055030.conf
+日志          : /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261025_055030.log
+PID 文件      : /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+方案          : resident=0-19 (W4A8) + pool=104 槽 (W4A16 等价)
+[ENV-PATCH] flashinfer/fused_moe/prepare.py: _process_humming_mxfp4_w4a8_payload 已改为 int32+按专家分块 (bit-equivalent, .orig 已备份, 回滚见 /mnt/SSD01/models/.llm-env/humming/patches/rollback_humming_w4a8_prepare_patch.sh)
+[ENV-PATCH-2] sglang 两文件作用域补丁 _eager_decode_prewarm 已应用 (预热 DECODE → _cpu_decode), 回滚见 /mnt/SSD01/models/.llm-env/humming/patches/rollback_sglang_dsv41_eager_decode_prewarm_scope.sh
+[ENV-CHANGE] FLASHINFER_USE_CUDA_NORM 1→0; norm 由 CUDA-JIT 切到 CuTe-DSL; no-op PDL 不变
+[ENV-CHANGE] chunked-prefill-size 8192→16384; 目的: 令 SuperChunk 注意力 wrapper 的安装门 16384>16384 为假 (attention_backend_setup.py:131-140), 绕开 _flash_mla_with_kvcache_sched_meta 在 eager DECODE 预热下的 SIGSEGV
+[ENV-CHANGE] (上一条已被备选A取代并回退为 8192) LK_GPU_PREFILL_MIN_TOKENS 1024→0; 关闭 GPU-prefill 档 ⇒ get_super_chunk_size()=0 ⇒ SuperChunk 注意力 wrapper 不安装(解 #7 SIGSEGV); 不再 probe staging 驱动; max_num_batched_tokens 保持 8192
+[ENV-CHANGE] SGLANG_DSV41_SKIP_CAPTURE_PREWARM=1; 跳过 prepare_before_cuda_graph_capture 的 eager DECODE 预热块(8 轮全部崩在该块内); 风险: 同构 4×H100 无跨架构编译时点差, 最坏是首次 capture 冷编译变慢
+[ENV-CHANGE] SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE=1; 把 _flashinfer_autotune 的 DECODE dummy 前向标记为 eager decode-prewarm ⇒ 非 resident 层走 _cpu_decode(解 #10 的 autotune 段 _cpu_prefill 段错误); 与 SKIP 门语义独立
+[ENV-CHANGE] 新增 --disable-flashinfer-autotune; 目的: autotune 的 dummy 前向连崩两次(#10 MoE _cpu_prefill / #11 attention flash_mla), 且它只是内核调参 pass 非服务必需
+[ENV-CHANGE] 新增 --swa-full-tokens-ratio 0.1(对齐厂商模板; 排除 SWA 池尺寸因素, 预期无效作单变量排除); 注意 SWA 池变大 ⇒ KV footprint 上升
+[ENV-CHANGE] 2026-10-23 W4A8→W4A16 对照轮: 不传 --flashinfer-mxfp4-moe-precision ⇒ 用默认 default; 非 fp8 ⇒ W4A16 (厂商口径, launch/ 17/17 均不传); 自检判据已随之对调 (EXPECT=W4A16, FORBID=W4A8), 与历史各轮相反
+[判据] 生效凭据 = '[prewarm-skip]' 行出现 且 '[attn-prewarm] rank=N done: **0** dummy forward(s)' ×4; done 计数 ≠0 而 [prewarm-skip] 也在 ⇒ 两条路都跑了, 异常
+--------------------------------------------------------------
+CUDA_DEVICE_ORDER=PCI_BUS_ID
+CUDA_VISIBLE_DEVICES=GPU-7561b28f-b049-bbdb-31f8-16efeb06663d,GPU-fb59db94-0e4e-4c4f-8ae5-4d0fdd1e0f0b,GPU-3c5d7267-445c-4679-bce9-503bedd0c920,GPU-3c0f2856-a6e3-b9d5-fd10-a08f55579fff
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=GPU-7561b28f-b049-bbdb-31f8-16efeb06663d,GPU-fb59db94-0e4e-4c4f-8ae5-4d0fdd1e0f0b,GPU-3c5d7267-445c-4679-bce9-503bedd0c920,GPU-3c0f2856-a6e3-b9d5-fd10-a08f55579fff
+export FLASHINFER_DISABLE_VERSION_CHECK=1
+export FLASHINFER_USE_CUDA_NORM=0
+export GLIBC_TUNABLES=glibc.malloc.thp_enabled=0
+export GLOO_SOCKET_IFNAME=lo
+export LK_GPU_PREFETCH_WINDOW=1
+export LK_GPU_PREFILL_ENGINE=triton
+export LK_GPU_PREFILL_MIN_TOKENS=0
+export LK_GPU_PREFILL_SUB_M=16384
+export LK_GPU_RESERVE_GB=0
+export LK_GPU_RESIDENT_MOE_LAYERS=0-19
+export LK_MOE_HYBRID_ENABLED=1
+export LK_NUMA_INTERLEAVE=1
+export LK_POOL_INFLIGHT=16
+export LK_POOL_LOG=100
+export LK_POOL_SLOTS=104
+export LK_POOL_STAGE=1
+export LK_POOL_WINDOW=32
+export LK_POWER_SAVING=1
+export LK_THREADS=24
+export LK_THREAD_BINDING=NUMA_NODE
+export LK_VERIFY_GEMM=false
+export LK_VERIFY_RESIDENT=1
+export LK_VERIFY_SKIP_MISS=0
+export LK_VERIFY_UVA=1
+export NCCL_SOCKET_IFNAME=lo
+export OMP_NUM_THREADS=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export SGLANG_DSV41_AUTOTUNE_DUMMY_DECODE=1
+export SGLANG_DSV41_DUMP_FLASHMLA_ARGS=1
+export SGLANG_DSV41_POST_CONVERT_RELEASE=1
+export SGLANG_DSV41_SKIP_CAPTURE_PREWARM=1
+export SGLANG_DSV41_SWA_PAD_SENTINEL=1
+export SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE=1
+export SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK=0
+export SGLANG_SKIP_P2P_CHECK=1
+--------------------------------------------------------------
+完整命令:
+  /mnt/SSD01/models/.llm-env/Lsglang/env/bin/sglang serve --model /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 --tensor-parallel-size 4 --ep-size 2 --mem-fraction-static 0.88 --max-running-requests 16 --context-length 1048576 --chunked-prefill-size 8192 --moe-runner-backend flashinfer_mxfp4 --disable-flashinfer-autotune --enable-decoder-swa-bounded-replay --disable-shared-experts-fusion --reasoning-parser auto --tool-call-parser auto --enable-hierarchical-cache --hicache-ratio 6 --trust-remote-code --api-key sk-dsv41-h100-interop-2026 --max-total-tokens 4194304 --speculative-algorithm DSPARK --speculative-dspark-block-size 5 --speculative-attention-mode decode --speculative-use-rejection-sampling --cuda-graph-max-bs-decode 16 --cuda-graph-max-bs-prefill 16 --host 0.0.0.0 --port 18010 --served-model-name DeepSeek-V4.1-Flash-1017
+就绪后自检断言: 必须含 '[pool] slab:' 且不含 'Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A8'
+==============================================================
+[2026-10-25 05:51:00] Registered linear attn model: config=GigaChat35Config, backend=GDNAttnBackend, archs=['GigaChat35ForCausalLM', 'GigaChat35ForCausalLMNextN']
+[2026-10-25 05:51:05] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:05] Hybrid SWA model detected. architectures=['DeepseekV4ForCausalLM']
+[2026-10-25 05:51:05] Breakable CUDA graph is incompatible with DeepSeek-V4 (heavy capture-pool memory pressure); disabling prefill CUDA graph.
+[2026-10-25 05:51:05] Use dsv4 attention backend for DeepseekV4ForCausalLM, setting page_size to 256.
+[2026-10-25 05:51:05] Setting KV cache dtype to fp8_e4m3 for DeepseekV4ForCausalLM.
+[2026-10-25 05:51:05] Auto-enabling FlashInfer AllReduce Fusion (auto) for DeepseekV4ForCausalLM
+[2026-10-25 05:51:06] DSpark draft weights are bundled in the target checkpoint; defaulting --speculative-draft-model-path to --model-path (/mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017).
+Detected CPU with AMX support
+Loading _lk_moe_C_avx512_amx.so
+Successfully loaded: ['MOEConfigV2', 'MOE_BF16', 'MOE_FP8', 'MOE_WNA16', 'MOE_NVFP4', 'MOE_MXFP4', 'MOE_FP16', 'MOE_FP8_FP16', 'MOE_WNA16_FP16', 'MOE_NVFP4_FP16', 'MOE_MXFP4_FP16', 'get_device_mem_usage', 'pool_stats', 'pool_slot', 'pool_ready_slot', 'pool_snapshot_slot', 'pool_set_det_split', 'pool_wait_fence', 'pool_wait_all_fences', 'pool_verify_sample', 'pool_layer_info', 'pool_capture_pause', 'pool_capture_resume', 'nvme_filler_attach', 'nvme_filler_attach_gather', 'nvme_filler_detach', 'nvme_filler_detach_all', 'nvme_filler_stats', 'nvme_gate']
+[2026-10-25 05:51:10] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:10] Auto-detected --reasoning-parser as 'deepseek-v41' from model architecture 'DeepseekV4ForCausalLM'
+[2026-10-25 05:51:10] Auto-detected --tool-call-parser as 'deepseekv41' from model architecture 'DeepseekV4ForCausalLM'
+[2026-10-25 05:51:10] server_args={'model_path': '/mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017', 'tokenizer_path': '/mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017', 'tokenizer_mode': 'auto', 'tokenizer_backend': 'huggingface', 'tokenizer_worker_num': 1, 'detokenizer_worker_num': 1, 'skip_tokenizer_init': False, 'load_format': 'auto', 'model_loader_extra_config': '{}', 'trust_remote_code': True, 'context_length': 1048576, 'is_embedding': False, 'enable_multimodal': None, 'revision': None, 'model_impl': 'auto', 'model_config_parser': 'auto', 'json_model_override_args': '{}', 'dtype': 'auto', 'quantization': None, 'quantization_param_path': None, 'kv_cache_dtype': 'fp8_e4m3', 'enable_fp32_lm_head': False, 'modelopt_quant': None, 'modelopt_checkpoint_restore_path': None, 'modelopt_checkpoint_save_path': None, 'modelopt_export_path': None, 'quantize_and_serve': False, 'rl_quant_profile': None, 'enable_tf32_matmul': False, 'mem_fraction_static': 0.88, 'max_running_requests': 16, 'max_queued_requests': None, 'max_total_tokens': 4194304, 'chunked_prefill_size': 8192, 'prefill_decode_interval': 0, 'enable_dynamic_chunking': False, 'max_prefill_tokens': 16384, 'prefill_max_requests': None, 'schedule_policy': 'fcfs', 'enable_priority_scheduling': False, 'disable_priority_preemption': False, 'default_priority_value': None, 'abort_on_priority_when_disabled': False, 'schedule_low_priority_values_first': False, 'priority_scheduling_preemption_threshold': 10, 'retraction_policy': 'length', 'schedule_conservativeness': 1.0, 'page_size': 256, 'c128_page_size': 16, 'swa_full_tokens_ratio': 0.8, 'disable_hybrid_swa_memory': False, 'radix_eviction_policy': 'lru', 'radix_eviction_policy_config': None, 'prefill_only_disable_kv_cache': False, 'disable_radix_cache': False, 'enable_page_major_kv_layout': False, 'enable_unified_memory': False, 'disable_chunked_prefix_cache': False, 'disable_overlap_schedule': False, 'num_continuous_decode_steps': 1, 'scheduler_recv_interval': 1, 'enable_mixed_chunk': False, 'nccl_port': None, 'dist_timeout': None, 'dist_init_addr': None, 'gated_launch_port': None, 'nnodes': 1, 'node_rank': 0, 'tp_size': 4, 'dcp_size': 1, 'pp_size': 1, 'pp_max_micro_batch_size': None, 'pp_async_batch_depth': 0, 'dp_size': 1, 'attn_dp_size': 1, 'load_balance_method': 'round_robin', 'attn_cp_size': 1, 'moe_dp_size': 1, 'dwdp_size': 1, 'dcp_comm_backend': 'ag_rs', 'dcp_replicate_q_proj': None, 'enable_prefill_cp': False, 'cp_strategy': None, 'enable_dsa_cache_layer_split': False, 'enable_cp_decode_attn_tp': False, 'enable_kv_cache_sharding': False, 'enable_dp_attention': False, 'enable_dp_attention_local_control_broadcast': False, 'enable_dp_lm_head': False, 'enable_tp_lm_head_all_to_all': False, 'enable_attn_tp_input_scattered': False, 'enable_shared_experts_attn_tp': False, 'shared_experts_tp_size': None, 'enable_dense_mlp_attn_tp': False, 'enable_layernorm_sp': False, 'disable_attn_tp_gather': False, 'enable_p2p_check': False, 'device': 'cuda', 'base_gpu_id': 0, 'gpu_id_step': 1, 'random_seed': 258923085, 'mlx_enable_sampling': False, 'watchdog_timeout': 300, 'soft_watchdog_timeout': None, 'sleep_on_idle': False, 'use_ray': False, 'custom_sigquit_handler': None, 'numa_node': None, 'gc_threshold': None, 'host': '0.0.0.0', 'port': 18010, 'fastapi_root_path': '', 'smg_grpc_mode': False, 'grpc_mode': False, 'grpc_port': None, 'grpc_worker_threads': 4, 'sidecar': None, 'sidecar_args': None, 'skip_server_warmup': False, 'warmups': None, 'enable_http2': False, 'http2_max_concurrent_streams': 200, 'http2_initial_connection_window_size': 1048576, 'ssl_keyfile': None, 'ssl_certfile': None, 'ssl_ca_certs': None, 'ssl_keyfile_password': None, 'enable_ssl_refresh': False, 'api_key': 'sk-dsv41-h100-interop-2026', 'admin_api_key': None, 'served_model_name': 'DeepSeek-V4.1-Flash-1017', 'weight_version': 'default', 'chat_template': None, 'trust_request_chat_template': False, 'hf_chat_template_name': None, 'completion_template': None, 'file_storage_path': None, 'enable_cache_report': False, 'return_input_ids': False, 'return_output_ids': False, 'reasoning_parser': 'deepseek-v41', 'default_chat_template_kwargs': None, 'strip_thinking_cache': False, 'enable_strict_thinking': False, 'tool_call_parser': 'deepseekv41', 'tool_server': None, 'sampling_defaults': 'model', 'asr_max_buffer_seconds': 60, 'asr_max_concurrent_sessions': 32, 'preferred_sampling_params': None, 'allow_auto_truncate': False, 'stream_interval': 1, 'batch_notify_size': 16, 'stream_response_default_include_usage': False, 'incremental_streaming_output': False, 'enable_streaming_session': False, 'enable_session_radix_cache': False, 'log_level': 'info', 'log_level_http': None, 'log_requests': False, 'log_requests_level': 2, 'log_requests_format': 'text', 'log_requests_target': None, 'uvicorn_access_log_exclude_prefixes': [], 'crash_dump_folder': None, 'show_time_cost': False, 'enable_metrics': False, 'smg_http_sidecar_port': None, 'enable_mfu_metrics': False, 'enable_metrics_for_all_schedulers': False, 'load_snapshot_publish_interval': 15, 'tokenizer_metrics_custom_labels_header': 'x-custom-labels', 'tokenizer_metrics_allowed_custom_labels': None, 'extra_metric_labels': None, 'bucket_time_to_first_token': None, 'bucket_inter_token_latency': None, 'bucket_e2e_request_latency': None, 'prompt_tokens_buckets': None, 'generation_tokens_buckets': None, 'gc_warning_threshold_secs': 0.0, 'decode_log_interval': 40, 'enable_request_time_stats_logging': False, 'kv_events_config': None, 'load_publish_endpoint': None, 'enable_forward_pass_metrics': False, 'forward_pass_metrics_worker_id': '', 'forward_pass_metrics_ipc_name': None, 'enable_trace': False, 'trace_modules': 'request', 'otlp_traces_endpoint': 'localhost:4317', 'export_metrics_to_file': False, 'export_metrics_to_file_dir': None, 'stat_loggers': None, 'constrained_json_whitespace_pattern': None, 'constrained_json_disable_any_whitespace': False, 'constrained_json_max_whitespace_cnt': None, 'attention_backend': 'dsv4', 'decode_attention_backend': None, 'enable_lean_attention': None, 'prefill_attention_backend': None, 'sampling_backend': 'flashinfer', 'grammar_backend': 'xgrammar', 'radix_cache_backend': None, 'mm_attention_backend': None, 'fp8_gemm_runner_backend': 'auto', 'fp4_gemm_runner_backend': 'auto', 'bf16_gemm_backend': 'auto', 'dsa_prefill_backend': None, 'dsv4_prefill_backend': 'auto', 'dsa_decode_backend': None, 'dsa_paged_mqa_logits_backend': 'auto', 'dsa_topk_backend': 'sgl-kernel', 'disable_flashinfer_autotune': True, 'flashinfer_autotune_skip_ops': None, 'mamba_backend': 'triton', 'cuda_graph_config': {'decode': {'backend': 'full', 'max_bs': 16, 'bs': [1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], 'tc_compiler': 'eager', 'max_context_size': None, 'full_prefill_max_req': None, 'full_prefill_prefix_chunk_tokens': None, 'max_seq_len': None}, 'prefill': {'backend': 'disabled', 'max_bs': 16, 'bs': [4, 8, 12, 16], 'tc_compiler': 'eager', 'max_context_size': None, 'full_prefill_max_req': None, 'full_prefill_prefix_chunk_tokens': None, 'max_seq_len': None}}, 'cuda_graph_backend_decode': None, 'cuda_graph_backend_prefill': None, 'cuda_graph_max_bs_decode': 16, 'cuda_graph_max_bs_prefill': 16, 'cuda_graph_bs_decode': None, 'cuda_graph_bs_prefill': None, 'cuda_graph_prefill_max_context': None, 'disable_prefill_cuda_graph': False, 'disable_decode_cuda_graph': False, 'disable_cuda_graph': False, 'disable_cuda_graph_padding': False, 'enable_profile_cuda_graph': False, 'enable_cudagraph_gc': False, 'debug_cuda_graph': False, 'enable_layerwise_nvtx_marker': False, 'enable_nccl_nvls': False, 'enable_symm_mem': False, 'triton_attention_reduce_in_fp32': False, 'triton_attention_num_kv_splits': 8, 'triton_attention_split_tile_size': None, 'flashinfer_mla_disable_ragged': False, 'enable_fused_qk_norm_rope': False, 'enable_precise_embedding_interpolation': False, 'enable_fused_moe_sum_all_reduce': False, 'enable_deepseek_v4_fp4_indexer': False, 'disable_custom_all_reduce': False, 'enable_mscclpp': False, 'enable_torch_symm_mem': False, 'enable_scattered_sconv': False, 'pre_warm_nccl': False, 'boundary_reduction': 'rs+rsv', 'enable_quant_communications': False, 'enable_flashinfer_allreduce_fusion': False, 'enforce_disable_flashinfer_allreduce_fusion': False, 'flashinfer_allreduce_fusion_backend': 'auto', 'enable_aiter_allreduce_fusion': False, 'enable_torch_compile': False, 'enable_torch_compile_debug_mode': False, 'torch_compile_max_bs': 32, 'speculative_algorithm': 'DSPARK', 'uno_lora_path': None, 'speculative_draft_model_path': '/mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017', 'speculative_draft_model_revision': None, 'speculative_draft_load_format': None, 'speculative_num_steps': 1, 'speculative_eagle_topk': 1, 'speculative_num_draft_tokens': 6, 'speculative_dflash_block_size': None, 'speculative_dspark_block_size': 5, 'speculative_dspark_sps_table_path': None, 'speculative_dspark_confidence_sts_path': None, 'speculative_dspark_align_verify_tokens_to_graph_tier': False, 'speculative_accept_threshold_single': 1.0, 'speculative_accept_threshold_acc': 1.0, 'speculative_use_rejection_sampling': True, 'speculative_token_map': None, 'speculative_attention_mode': 'decode', 'speculative_draft_attention_backend': None, 'speculative_dsa_topk_backend': 'sgl-kernel', 'speculative_draft_kv_cache_dtype': None, 'speculative_draft_window_size': None, 'speculative_moe_runner_backend': 'flashinfer_mxfp4', 'speculative_moe_a2a_backend': None, 'speculative_enable_w4a4_mxfp4_megamoe': None, 'speculative_draft_model_quantization': None, '_speculative_draft_quantization_explicitly_set': False, 'speculative_skip_dp_mlp_sync': False, 'enable_multi_layer_eagle': False, 'speculative_adaptive': False, 'speculative_adaptive_config': None, 'decoupled_spec_bind_endpoint': None, 'decoupled_spec_connect_endpoints': None, 'decoupled_spec_rank': None, 'decoupled_spec_role': 'null', 'spec_trace_dir': None, 'speculative_ngram_min_bfs_breadth': 1, 'speculative_ngram_max_bfs_breadth': 10, 'speculative_ngram_match_type': 'BFS', 'speculative_ngram_max_trie_depth': 18, 'speculative_ngram_capacity': 10000000, 'speculative_ngram_external_corpus_path': None, 'speculative_ngram_external_sam_budget': 0, 'speculative_ngram_external_corpus_max_tokens': 10000000, 'ep_size': 2, 'moe_a2a_backend': 'none', 'enable_w4a4_mxfp4_megamoe': False, 'deepep_v2_mode': 'direct', 'moe_runner_backend': 'flashinfer_mxfp4', 'flashinfer_mxfp4_moe_precision': 'default', 'deepep_mode': 'auto', 'fuseep_mode': 2, 'deepep_dispatcher_output_dtype': 'auto', 'ep_num_redundant_experts': 0, 'ep_dispatch_algorithm': None, 'init_expert_location': 'trivial', 'enable_eplb': False, 'eplb_algorithm': 'auto', 'eplb_rebalance_num_iterations': 1000, 'eplb_rebalance_layers_per_chunk': None, 'eplb_min_rebalancing_utilization_threshold': 1.0, 'expert_distribution_recorder_mode': None, 'expert_distribution_recorder_buffer_size': 1000, 'expert_balancedness_report_mode': 'off', 'deepep_config': None, 'moe_dense_tp_size': None, 'elastic_ep_backend': None, 'enable_elastic_expert_backup': False, 'mooncake_ib_device': None, 'enable_waterfill': False, 'ep_join_mode': None, 'ep_join_rank_offset': 0, 'elastic_ep_initial_size': None, 'max_ep_size': None, 'elastic_ep_scale_timeout': 600, 'disable_flashinfer_cutlass_moe_fp4_allgather': False, 'disable_shared_experts_fusion': True, 'enforce_shared_experts_fusion': False, 'max_mamba_cache_size': None, 'mamba_ssm_dtype': None, 'mamba_max_states_per_path': -1, 'enable_mamba_cache_stochastic_rounding': False, 'mamba_cache_philox_rounds': 0, 'mamba_full_memory_ratio': 0.9, 'mamba_radix_cache_strategy': 'auto', 'uses_mamba_radix_cache': False, 'mamba_track_interval': 256, 'enable_int8_mamba_checkpoint': False, 'int8_mamba_ckpt_size': None, 'linear_attn_backend': 'triton', 'linear_attn_decode_backend': None, 'linear_attn_prefill_backend': None, 'linear_attn_verify_backend': None, 'enable_linear_replayssm': False, 'linear_replayssm_cache_len': 16, 'enable_linear_replayssm_spec': False, 'enable_hierarchical_cache': True, 'hicache_host_memory_mode': 'cache', 'hicache_ratio': 6.0, 'hicache_size': 0, 'hicache_write_policy': 'write_through', 'hicache_io_backend': 'kernel', 'hicache_mem_layout': 'page_first', 'hicache_storage_backend': None, 'hicache_storage_prefetch_policy': 'timeout', 'hicache_storage_backend_extra_config': None, 'hicache_storage_prefetch_retry_poll_interval': 8, 'hicache_storage_prefetch_retry_max_attempts': 8, 'enable_unified_cache_external_linker': False, 'unified_cache_external_linker_backend': 'mooncake', 'enable_hisparse': False, 'hisparse_config': None, 'enable_broadcast_mm_inputs_process': False, 'enable_prefix_mm_cache': False, 'mm_enable_dp_encoder': False, 'mm_process_config': {}, 'mm_processor_worker_num': 0, 'mm_io_worker_num': 0, 'allowed_media_domains': [], 'media_url_max_file_size_mb': 64, 'mm_preprocess_cache_size_mb': None, 'trust_mm_content_hashes': False, 'limit_mm_data_per_request': None, 'enable_mm_global_cache': False, 'image_processor_backend': 'auto', 'mm_global_cache_backend': 'mooncake', 'disable_fast_image_processor': False, 'mm_feature_transport': 'cpu', 'enable_lora': None, 'enable_lora_overlap_loading': None, 'max_lora_rank': None, 'lora_target_modules': None, 'lora_paths': None, 'max_loaded_loras': None, 'max_loras_per_batch': 8, 'lora_eviction_policy': 'lru', 'lora_backend': 'csgmv', 'max_lora_chunk_size': 16, 'experts_shared_outer_loras': None, 'lora_use_virtual_experts': False, 'lora_strict_loading': False, 'lora_drain_wait_threshold': 0.0, 'enable_two_batch_overlap': False, 'enable_single_batch_overlap': False, 'tbo_token_distribution_threshold': 0.48, 'cpu_offload_gb': 0, 'offload_group_size': -1, 'offload_num_in_group': 1, 'offload_prefetch_step': 1, 'offload_mode': 'cpu', 'enable_lmcache': False, 'lmcache_config_file': None, 'enable_flexkv': False, 'flexkv_config_file': None, 'kt_weight_path': None, 'kt_method': 'AMXINT4', 'kt_cpuinfer': None, 'kt_threadpool_count': 2, 'kt_num_gpu_experts': None, 'kt_max_deferred_experts_per_token': None, 'dllm_algorithm': None, 'dllm_algorithm_config': None, 'dllm_fdfo': True, 'disaggregation_mode': 'null', 'disaggregation_transfer_backend': 'mooncake', 'disaggregation_bootstrap_port': 8998, 'disaggregation_ib_device': None, 'disaggregation_decode_enable_radix_cache': False, 'disaggregation_decode_enable_offload_kvcache': False, 'disaggregation_decode_retraction_backup': None, 'num_reserved_decode_tokens': 512, 'disaggregation_decode_extra_slots': None, 'disaggregation_decode_polling_interval': 1, 'optimistic_prefill_attempts': 0, 'encoder_only': False, 'language_only': False, 'language_model_only': False, 'encoder_transfer_backend': 'zmq_to_scheduler', 'encoder_urls': [], 'encoder_bootstrap_port': 8997, 'encoder_register_urls': [], 'enable_adaptive_dispatch_to_encoder': False, 'enable_pdmux': False, 'pdmux_config_path': None, 'sm_group_num': 8, 'startup_weight_load_mode': 'serial', 'custom_weight_loader': [], 'weight_loader_disable_mmap': False, 'weight_loader_prefetch_checkpoints': False, 'weight_loader_prefetch_num_threads': 4, 'weight_loader_drop_cache_after_load': False, 'remote_instance_weight_loader_seed_instance_ip': None, 'remote_instance_weight_loader_seed_instance_service_port': None, 'remote_instance_weight_loader_send_weights_group_ports': None, 'remote_instance_weight_loader_backend': 'nccl', 'remote_instance_weight_loader_start_seed_via_transfer_engine': False, 'engine_info_bootstrap_port': 6789, 'modelexpress_config': None, 'download_dir': None, 'model_checksum': None, 'delete_ckpt_after_loading': False, 'decrypted_config_file': None, 'decrypted_draft_config_file': None, 'checkpoint_engine_wait_weights_before_ready': False, 'enable_prefill_delayer': False, 'prefill_delayer_max_delay_passes': 30, 'prefill_delayer_token_usage_low_watermark': None, 'prefill_delayer_forward_passes_buckets': None, 'prefill_delayer_wait_seconds_buckets': None, 'prefill_delayer_queue_min_ratio': None, 'prefill_delayer_max_delay_ms': None, 'min_free_slots_delay': None, 'enable_deterministic_inference': False, 'rl_on_policy_target': None, 'kv_canary': 'none', 'kv_canary_real_data': 'none', 'kv_canary_sweep_interval': 0, 'enable_dynamic_batch_tokenizer': False, 'dynamic_batch_tokenizer_batch_size': 32, 'dynamic_batch_tokenizer_batch_timeout': 0.002, 'enable_tokenizer_batch_encode': False, 'disable_tokenizer_batch_decode': False, 'debug_tensor_dump_output_folder': None, 'debug_tensor_dump_layers': None, 'debug_tensor_dump_input_file': None, 'enable_memory_saver': False, 'enable_weights_cpu_backup': False, 'enable_draft_weights_cpu_backup': False, 'enable_custom_logit_processor': False, 'enable_return_hidden_states': False, 'return_hidden_states_mode': None, 'enable_return_routed_experts': False, 'enable_return_indexer_topk': False, 'sampling_mask_max_tokens': 4096, 'disable_outlines_disk_cache': False, 'enable_mis': False, 'weight_cache_mode': 'off', 'weight_cache_socket': None, 'weight_cache_timeout': 1800, 'forward_hooks': None, 'msprobe_dump_config': None, 'ple_offload_embedding': None, 'ple_offload_backend': 'pinned', 'ple_offload_dir': None, 'disaggregation_enable_kv_checksum': False, 'enable_pd_role_switch': False, 'speculative_domino_candidate_pool_size': 2048, 'flashinfer_a2a_dispatch_type': None, 'cuda_graph_max_seq_len_prefill': None, 'prefill_kv_cache_dequant_dtype': 'auto', 'dsv4_attn_backend': 'flashmla', 'otlp_service_name': None, '_radix_eviction_policy_explicitly_set': False, 'hicache_host_memory_fraction': None, 'enable_linker_mla_dedup': False, '_swa_full_tokens_ratio_explicitly_set': False, 'swa_prefix_tails': None, 'enable_encoder_swa_bounded_replay': False, 'enable_decoder_swa_bounded_replay': True, 'enable_response_store': False, 'disaggregation_decode_host_receive_threshold': 1.0, 'qsa_indexer_dtype': 'auto', 'disaggregation_decode_allocation_policy': 'early', 'speculative_boundary_reduction': 'rs+rsv', 'speculative_use_block_verification': False, 'speculative_draft_sink_size': None, 'disable_aiter_allreduce_fusion_in_prefill': False, 'disable_aiter_allreduce_fusion_in_decode': False, 'monokernel_backend': None, 'dsa_triton_union': 0, 'enable_dsa_fused_indexer': None, 'enable_cp_tp_group_sharing': False, 'enable_fp8_lm_head': False, 'enable_watermark': False, 'watermark_config': '<redacted>', 'watermark_key': '<redacted>', 'watermark_key_b': '<redacted>', 'watermark_context_window': 4, 'watermark_mixing_probability': 0.5, 'watermark_max_probability': 1.0, 'watermark_default_enabled': False, 'watermark_enforce_all': False, 'grpc_response_timeout_secs': 300}
+[2026-10-25 05:51:11] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1643: FutureWarning: `torch.jit.interface` is deprecated. Please use `torch.compile` instead.
+  warnings.warn(
+[2026-10-25 05:51:12] Ignore import error when loading sglang.srt.multimodal.processors.inkling: No module named 'torchaudio'
+[2026-10-25 05:51:12] Ignore import error when loading sglang.srt.multimodal.processors.midashenglm: No module named 'torchaudio'
+[2026-10-25 05:51:12] torchaudio is not installed; audio inputs will fail at request time
+[2026-10-25 05:51:15] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:16] Ignore import error when loading sglang.srt.models.midashenglm: No module named 'torchaudio'
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+[2026-10-25 05:51:16] V4.1 Rust image processor unavailable; using PIL: Rust workspace for sglang.srt.rust_extensions._multimodal was not found at /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/rust
+[2026-10-25 05:51:16] Multimodal processor concurrency enabled with 2 isolated worker threads (auto).
+[2026-10-25 05:51:17] No HuggingFace chat template found
+[2026-10-25 05:51:17] No chat template found, defaulting to 'string' content format
+Detected CPU with AMX support
+Loading _lk_moe_C_avx512_amx.so
+Successfully loaded: ['MOEConfigV2', 'MOE_BF16', 'MOE_FP8', 'MOE_WNA16', 'MOE_NVFP4', 'MOE_MXFP4', 'MOE_FP16', 'MOE_FP8_FP16', 'MOE_WNA16_FP16', 'MOE_NVFP4_FP16', 'MOE_MXFP4_FP16', 'get_device_mem_usage', 'pool_stats', 'pool_slot', 'pool_ready_slot', 'pool_snapshot_slot', 'pool_set_det_split', 'pool_wait_fence', 'pool_wait_all_fences', 'pool_verify_sample', 'pool_layer_info', 'pool_capture_pause', 'pool_capture_resume', 'nvme_filler_attach', 'nvme_filler_attach_gather', 'nvme_filler_detach', 'nvme_filler_detach_all', 'nvme_filler_stats', 'nvme_gate']
+Detected CPU with AMX support
+Loading _lk_moe_C_avx512_amx.so
+Successfully loaded: ['MOEConfigV2', 'MOE_BF16', 'MOE_FP8', 'MOE_WNA16', 'MOE_NVFP4', 'MOE_MXFP4', 'MOE_FP16', 'MOE_FP8_FP16', 'MOE_WNA16_FP16', 'MOE_NVFP4_FP16', 'MOE_MXFP4_FP16', 'get_device_mem_usage', 'pool_stats', 'pool_slot', 'pool_ready_slot', 'pool_snapshot_slot', 'pool_set_det_split', 'pool_wait_fence', 'pool_wait_all_fences', 'pool_verify_sample', 'pool_layer_info', 'pool_capture_pause', 'pool_capture_resume', 'nvme_filler_attach', 'nvme_filler_attach_gather', 'nvme_filler_detach', 'nvme_filler_detach_all', 'nvme_filler_stats', 'nvme_gate']
+Detected CPU with AMX support
+Loading _lk_moe_C_avx512_amx.so
+Successfully loaded: ['MOEConfigV2', 'MOE_BF16', 'MOE_FP8', 'MOE_WNA16', 'MOE_NVFP4', 'MOE_MXFP4', 'MOE_FP16', 'MOE_FP8_FP16', 'MOE_WNA16_FP16', 'MOE_NVFP4_FP16', 'MOE_MXFP4_FP16', 'get_device_mem_usage', 'pool_stats', 'pool_slot', 'pool_ready_slot', 'pool_snapshot_slot', 'pool_set_det_split', 'pool_wait_fence', 'pool_wait_all_fences', 'pool_verify_sample', 'pool_layer_info', 'pool_capture_pause', 'pool_capture_resume', 'nvme_filler_attach', 'nvme_filler_attach_gather', 'nvme_filler_detach', 'nvme_filler_detach_all', 'nvme_filler_stats', 'nvme_gate']
+[scheduler] rank bound to cuda:2 (NVIDIA H100 80GB HBM3, sm90)
+[2026-10-25 05:51:29 TP2 EP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:29 TP2 EP1] Init parallel begin.
+Detected CPU with AMX support
+Loading _lk_moe_C_avx512_amx.so
+Successfully loaded: ['MOEConfigV2', 'MOE_BF16', 'MOE_FP8', 'MOE_WNA16', 'MOE_NVFP4', 'MOE_MXFP4', 'MOE_FP16', 'MOE_FP8_FP16', 'MOE_WNA16_FP16', 'MOE_NVFP4_FP16', 'MOE_MXFP4_FP16', 'get_device_mem_usage', 'pool_stats', 'pool_slot', 'pool_ready_slot', 'pool_snapshot_slot', 'pool_set_det_split', 'pool_wait_fence', 'pool_wait_all_fences', 'pool_verify_sample', 'pool_layer_info', 'pool_capture_pause', 'pool_capture_resume', 'nvme_filler_attach', 'nvme_filler_attach_gather', 'nvme_filler_detach', 'nvme_filler_detach_all', 'nvme_filler_stats', 'nvme_gate']
+[scheduler] rank bound to cuda:1 (NVIDIA H100 80GB HBM3, sm90)
+[scheduler] rank bound to cuda:0 (NVIDIA H100 80GB HBM3, sm90)
+[2026-10-25 05:51:29 TP1 EP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:29 TP1 EP0] Init parallel begin.
+[2026-10-25 05:51:29 TP0 EP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:29 TP0 EP0] Init parallel begin.
+[scheduler] rank bound to cuda:3 (NVIDIA H100 80GB HBM3, sm90)
+[2026-10-25 05:51:29 TP3 EP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:29 TP3 EP1] Init parallel begin.
+[2026-10-25 05:51:30] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:30 TP0 EP0] sglang is using nccl==2.30.7
+[2026-10-25 05:51:32 TP0 EP0] Setup Custom allreduce failed with invalid literal for int() with base 10: 'GPU-7561b28f-b049-bbdb-31f8-16efeb06663d'. To silence this warning, specify --disable-custom-all-reduce explicitly.
+[2026-10-25 05:51:32 TP3 EP1] Setup Custom allreduce failed with invalid literal for int() with base 10: 'GPU-7561b28f-b049-bbdb-31f8-16efeb06663d'. To silence this warning, specify --disable-custom-all-reduce explicitly.
+[2026-10-25 05:51:32 TP1 EP0] Setup Custom allreduce failed with invalid literal for int() with base 10: 'GPU-7561b28f-b049-bbdb-31f8-16efeb06663d'. To silence this warning, specify --disable-custom-all-reduce explicitly.
+[2026-10-25 05:51:32 TP2 EP1] Setup Custom allreduce failed with invalid literal for int() with base 10: 'GPU-7561b28f-b049-bbdb-31f8-16efeb06663d'. To silence this warning, specify --disable-custom-all-reduce explicitly.
+[2026-10-25 05:51:32 TP3 EP1] Init parallel ends. elapsed=2.58 s
+[2026-10-25 05:51:32 TP2 EP1] Init parallel ends. elapsed=3.23 s
+[2026-10-25 05:51:32 TP1 EP0] Init parallel ends. elapsed=2.70 s
+[2026-10-25 05:51:32 TP0 EP0] Init parallel ends. elapsed=2.69 s
+[2026-10-25 05:51:35 TP3 EP1] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:35 TP2 EP1] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:35 TP0 EP0] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:35 TP1 EP0] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1643: FutureWarning: `torch.jit.interface` is deprecated. Please use `torch.compile` instead.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1643: FutureWarning: `torch.jit.interface` is deprecated. Please use `torch.compile` instead.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1643: FutureWarning: `torch.jit.interface` is deprecated. Please use `torch.compile` instead.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1643: FutureWarning: `torch.jit.interface` is deprecated. Please use `torch.compile` instead.
+  warnings.warn(
+[2026-10-25 05:51:36 TP1 EP0] Ignore import error when loading sglang.srt.multimodal.processors.inkling: No module named 'torchaudio'
+[2026-10-25 05:51:36 TP0 EP0] Ignore import error when loading sglang.srt.multimodal.processors.inkling: No module named 'torchaudio'
+[2026-10-25 05:51:36 TP2 EP1] Ignore import error when loading sglang.srt.multimodal.processors.inkling: No module named 'torchaudio'
+[2026-10-25 05:51:36 TP3 EP1] Ignore import error when loading sglang.srt.multimodal.processors.inkling: No module named 'torchaudio'
+[2026-10-25 05:51:37 TP1 EP0] Ignore import error when loading sglang.srt.multimodal.processors.midashenglm: No module named 'torchaudio'
+[2026-10-25 05:51:37 TP1 EP0] torchaudio is not installed; audio inputs will fail at request time
+[2026-10-25 05:51:37 TP2 EP1] Ignore import error when loading sglang.srt.multimodal.processors.midashenglm: No module named 'torchaudio'
+[2026-10-25 05:51:37 TP0 EP0] Ignore import error when loading sglang.srt.multimodal.processors.midashenglm: No module named 'torchaudio'
+[2026-10-25 05:51:37 TP2 EP1] torchaudio is not installed; audio inputs will fail at request time
+[2026-10-25 05:51:37 TP0 EP0] torchaudio is not installed; audio inputs will fail at request time
+[2026-10-25 05:51:37 TP3 EP1] Ignore import error when loading sglang.srt.multimodal.processors.midashenglm: No module named 'torchaudio'
+[2026-10-25 05:51:37 TP3 EP1] torchaudio is not installed; audio inputs will fail at request time
+[2026-10-25 05:51:37 TP1 EP0] V4.1 Rust image processor unavailable; using PIL: Rust workspace for sglang.srt.rust_extensions._multimodal was not found at /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/rust
+[2026-10-25 05:51:37 TP0 EP0] V4.1 Rust image processor unavailable; using PIL: Rust workspace for sglang.srt.rust_extensions._multimodal was not found at /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/rust
+[2026-10-25 05:51:37 TP2 EP1] V4.1 Rust image processor unavailable; using PIL: Rust workspace for sglang.srt.rust_extensions._multimodal was not found at /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/rust
+[2026-10-25 05:51:37 TP3 EP1] V4.1 Rust image processor unavailable; using PIL: Rust workspace for sglang.srt.rust_extensions._multimodal was not found at /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/rust
+[2026-10-25 05:51:37 TP1 EP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:37 TP1 EP0] Draft checkpoint bundles a DSpark head; loading draft arch DeepseekV4ForCausalLMDSpark.
+[2026-10-25 05:51:37 TP2 EP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:37 TP0 EP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:37 TP3 EP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:37 TP3 EP1] Draft checkpoint bundles a DSpark head; loading draft arch DeepseekV4ForCausalLMDSpark.
+[2026-10-25 05:51:37 TP2 EP1] Draft checkpoint bundles a DSpark head; loading draft arch DeepseekV4ForCausalLMDSpark.
+[2026-10-25 05:51:37 TP0 EP0] Draft checkpoint bundles a DSpark head; loading draft arch DeepseekV4ForCausalLMDSpark.
+[2026-10-25 05:51:37 TP1 EP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:38 TP3 EP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:38 TP2 EP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:38 TP0 EP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 05:51:38 TP0 EP0] Memory baseline taken. mem usage=0.00 GB
+[2026-10-25 05:51:38 TP3 EP1] Memory baseline taken. mem usage=0.00 GB
+[2026-10-25 05:51:38 TP2 EP1] Memory baseline taken. mem usage=0.00 GB
+[2026-10-25 05:51:38 TP1 EP0] Memory baseline taken. mem usage=0.00 GB
+[2026-10-25 05:51:38 TP3 EP1] Ignore import error when loading sglang.srt.models.midashenglm: No module named 'torchaudio'
+[2026-10-25 05:51:38 TP0 EP0] Ignore import error when loading sglang.srt.models.midashenglm: No module named 'torchaudio'
+[2026-10-25 05:51:38 TP2 EP1] Ignore import error when loading sglang.srt.models.midashenglm: No module named 'torchaudio'
+[2026-10-25 05:51:38 TP1 EP0] Ignore import error when loading sglang.srt.models.midashenglm: No module named 'torchaudio'
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/jit/_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+[2026-10-25 05:51:38 TP0 EP0] Load weight begin. avail mem=77.40 GB
+[2026-10-25 05:51:38 TP0 EP0] Detected fp8 checkpoint.
+[2026-10-25 05:51:38 TP3 EP1] Load weight begin. avail mem=77.58 GB
+[2026-10-25 05:51:38 TP2 EP1] Load weight begin. avail mem=77.35 GB
+[2026-10-25 05:51:38 TP0 EP0] Multimodal attention backend not set. Use fa3.
+[2026-10-25 05:51:38 TP0 EP0] Using fa3 as multimodal attention backend.
+[2026-10-25 05:51:38 TP3 EP1] Multimodal attention backend not set. Use fa3.
+[2026-10-25 05:51:38 TP3 EP1] Using fa3 as multimodal attention backend.
+[2026-10-25 05:51:38 TP2 EP1] Multimodal attention backend not set. Use fa3.
+[2026-10-25 05:51:38 TP2 EP1] Using fa3 as multimodal attention backend.
+[2026-10-25 05:51:38 TP1 EP0] Load weight begin. avail mem=77.35 GB
+[2026-10-25 05:51:38 TP1 EP0] Multimodal attention backend not set. Use fa3.
+[2026-10-25 05:51:38 TP1 EP0] Using fa3 as multimodal attention backend.
+[2026-10-25 05:51:44 TP0 EP0] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:44 TP3 EP1] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:44 TP1 EP0] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 05:51:44 TP2 EP1] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+Multi-thread loading shards:   0% Completed | 0/48 [00:00<?, ?it/s]Multi-thread loading shards:   2% Completed | 1/48 [00:00<00:10,  4.60it/s]Multi-thread loading shards:   6% Completed | 3/48 [00:02<00:32,  1.38it/s]Multi-thread loading shards:   8% Completed | 4/48 [00:02<00:28,  1.54it/s]Multi-thread loading shards:  10% Completed | 5/48 [00:03<00:33,  1.27it/s]Multi-thread loading shards:  12% Completed | 6/48 [00:04<00:31,  1.34it/s]Multi-thread loading shards:  15% Completed | 7/48 [00:04<00:30,  1.36it/s]Multi-thread loading shards:  17% Completed | 8/48 [00:05<00:28,  1.38it/s]Multi-thread loading shards:  19% Completed | 9/48 [00:06<00:27,  1.40it/s]Multi-thread loading shards:  21% Completed | 10/48 [00:07<00:26,  1.41it/s]Multi-thread loading shards:  23% Completed | 11/48 [00:08<00:32,  1.14it/s]Multi-thread loading shards:  25% Completed | 12/48 [00:09<00:29,  1.21it/s]Multi-thread loading shards:  27% Completed | 13/48 [00:09<00:27,  1.27it/s]Multi-thread loading shards:  29% Completed | 14/48 [00:10<00:25,  1.35it/s]Multi-thread loading shards:  31% Completed | 15/48 [00:10<00:23,  1.41it/s]Multi-thread loading shards:  33% Completed | 16/48 [00:11<00:22,  1.45it/s]Multi-thread loading shards:  35% Completed | 17/48 [00:12<00:20,  1.48it/s]Multi-thread loading shards:  38% Completed | 18/48 [00:12<00:19,  1.58it/s]Multi-thread loading shards:  40% Completed | 19/48 [00:13<00:17,  1.70it/s]Multi-thread loading shards:  42% Completed | 20/48 [00:14<00:20,  1.36it/s]Multi-thread loading shards:  44% Completed | 21/48 [00:15<00:20,  1.31it/s]Multi-thread loading shards:  46% Completed | 22/48 [00:15<00:18,  1.38it/s]Multi-thread loading shards:  48% Completed | 23/48 [00:16<00:17,  1.43it/s]Multi-thread loading shards:  50% Completed | 24/48 [00:17<00:16,  1.47it/s]Multi-thread loading shards:  52% Completed | 25/48 [00:17<00:15,  1.47it/s]Multi-thread loading shards:  54% Completed | 26/48 [00:18<00:14,  1.49it/s]Multi-thread loading shards:  56% Completed | 27/48 [00:19<00:13,  1.50it/s]Multi-thread loading shards:  58% Completed | 28/48 [00:19<00:13,  1.52it/s]Multi-thread loading shards:  60% Completed | 29/48 [00:20<00:12,  1.52it/s]Multi-thread loading shards:  62% Completed | 30/48 [00:21<00:15,  1.16it/s]Multi-thread loading shards:  65% Completed | 31/48 [00:22<00:13,  1.25it/s]Multi-thread loading shards:  67% Completed | 32/48 [00:23<00:12,  1.33it/s]Multi-thread loading shards:  69% Completed | 33/48 [00:23<00:10,  1.39it/s]Multi-thread loading shards:  71% Completed | 34/48 [00:24<00:09,  1.43it/s]Multi-thread loading shards:  73% Completed | 35/48 [00:24<00:08,  1.47it/s]Multi-thread loading shards:  75% Completed | 36/48 [00:25<00:08,  1.34it/s]Multi-thread loading shards:  77% Completed | 37/48 [00:26<00:07,  1.39it/s]Multi-thread loading shards:  79% Completed | 38/48 [00:27<00:06,  1.44it/s]Multi-thread loading shards:  81% Completed | 39/48 [00:27<00:06,  1.47it/s]Multi-thread loading shards:  83% Completed | 40/48 [00:28<00:05,  1.49it/s]Multi-thread loading shards:  85% Completed | 41/48 [00:29<00:04,  1.51it/s]Multi-thread loading shards:  88% Completed | 42/48 [00:29<00:03,  1.52it/s][2026-10-25 05:52:15 TP3 EP1] Finished streaming dequant fp8 wo_a
+Multi-thread loading shards:  92% Completed | 44/48 [00:30<00:01,  2.15it/s][2026-10-25 05:52:15 TP1 EP0] Finished streaming dequant fp8 wo_a
+Multi-thread loading shards:  94% Completed | 45/48 [00:30<00:01,  1.87it/s]Multi-thread loading shards:  96% Completed | 46/48 [00:31<00:01,  1.92it/s]Multi-thread loading shards: 100% Completed | 48/48 [00:31<00:00,  1.53it/s]
+[2026-10-25 05:52:17 TP0 EP0] Finished streaming dequant fp8 wo_a
+[2026-10-25 05:52:17 TP2 EP1] Finished streaming dequant fp8 wo_a
+[2026-10-25 05:57:42 TP0 EP0] engram host table: dropped the page cache of 48 checkpoint files (475 GiB) after faulting the shared table
+[2026-10-25 05:57:42 TP1 EP0] engram host table: dropped the page cache of 48 checkpoint files (475 GiB) after faulting the shared table
+[2026-10-25 05:57:43 TP3 EP1] engram host table: dropped the page cache of 48 checkpoint files (475 GiB) after faulting the shared table
+[2026-10-25 05:57:44 TP2 EP1] engram host table: dropped the page cache of 48 checkpoint files (475 GiB) after faulting the shared table
+[2026-10-25 05:58:00 TP1 EP0] engram host table layer 1: layout=shared, 24170 MiB resident, 0 MiB in huge pages (0%). No huge pages: expect ~10x slower lookups (one TLB miss per row); transparent_hugepage/shmem_enabled is 'never'
+[2026-10-25 05:58:00 TP0 EP0] engram host table layer 1: layout=shared, 24170 MiB resident, 0 MiB in huge pages (0%). No huge pages: expect ~10x slower lookups (one TLB miss per row); transparent_hugepage/shmem_enabled is 'never'
+[2026-10-25 05:58:01 TP3 EP1] engram host table layer 1: layout=shared, 24171 MiB resident, 0 MiB in huge pages (0%). No huge pages: expect ~10x slower lookups (one TLB miss per row); transparent_hugepage/shmem_enabled is 'never'
+[2026-10-25 05:58:01 TP2 EP1] engram host table layer 1: layout=shared, 24170 MiB resident, 0 MiB in huge pages (0%). No huge pages: expect ~10x slower lookups (one TLB miss per row); transparent_hugepage/shmem_enabled is 'never'
+[2026-10-25 05:58:18 TP1 EP0] engram host table layer 14: layout=shared, 24171 MiB resident, 0 MiB in huge pages (0%). No huge pages: expect ~10x slower lookups (one TLB miss per row); transparent_hugepage/shmem_enabled is 'never'
+[2026-10-25 05:58:18 TP1 EP0] [prewarm] MHC load-time prewarm begin (not is_nextn)
+[2026-10-25 05:58:18 TP0 EP0] engram host table layer 14: layout=shared, 24171 MiB resident, 0 MiB in huge pages (0%). No huge pages: expect ~10x slower lookups (one TLB miss per row); transparent_hugepage/shmem_enabled is 'never'
+[2026-10-25 05:58:18 TP0 EP0] [prewarm] MHC load-time prewarm begin (not is_nextn)
+[2026-10-25 05:58:19 TP3 EP1] engram host table layer 14: layout=shared, 24171 MiB resident, 0 MiB in huge pages (0%). No huge pages: expect ~10x slower lookups (one TLB miss per row); transparent_hugepage/shmem_enabled is 'never'
+[2026-10-25 05:58:19 TP3 EP1] [prewarm] MHC load-time prewarm begin (not is_nextn)
+[2026-10-25 05:58:19 TP2 EP1] engram host table layer 14: layout=shared, 24171 MiB resident, 0 MiB in huge pages (0%). No huge pages: expect ~10x slower lookups (one TLB miss per row); transparent_hugepage/shmem_enabled is 'never'
+[2026-10-25 05:58:19 TP2 EP1] [prewarm] MHC load-time prewarm begin (not is_nextn)
+[2026-10-25 05:58:19 TP0 EP0] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] block=6 M buckets=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96]
+[2026-10-25 05:58:19 TP1 EP0] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] block=6 M buckets=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96]
+[2026-10-25 05:58:19 TP3 EP1] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] block=6 M buckets=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96]
+[2026-10-25 05:58:20 TP2 EP1] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] block=6 M buckets=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96]
+[2026-10-25 05:58:31 TP3 EP1] [prewarm] block-fp8 linear prewarm done: warmed 210 module(s), 7 distinct (N,K) shape(s)=[(1152, 5120), (1792, 5120), (4096, 1280), (5120, 576), (5120, 2048), (8192, 1280), (25600, 6144)]
+[2026-10-25 05:58:32 TP3 EP1] MoE vision-gate prewarm: 1 router spec(s) warmed
+[2026-10-25 05:58:32 TP3 EP1] DeepSeek V4 MHC prenorm prewarm: 22 n_splits buckets
+[2026-10-25 05:58:41 TP1 EP0] [prewarm] block-fp8 linear prewarm done: warmed 210 module(s), 7 distinct (N,K) shape(s)=[(1152, 5120), (1792, 5120), (4096, 1280), (5120, 576), (5120, 2048), (8192, 1280), (25600, 6144)]
+[2026-10-25 05:58:42 TP1 EP0] MoE vision-gate prewarm: 1 router spec(s) warmed
+[2026-10-25 05:58:42 TP1 EP0] DeepSeek V4 MHC prenorm prewarm: 22 n_splits buckets
+[2026-10-25 05:58:51 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 05:58:51 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=1792, K=5120, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 05:58:51 TP0 EP0] Required memory for warmup: 0.16092205047607422GB, Available memory: 37.15948486328125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:  13%|█▎        | 2066/16384 [00:00<00:00, 20651.50it/s]DeepGEMM warmup:  25%|██▌       | 4132/16384 [00:00<00:00, 17193.56it/s]DeepGEMM warmup:  36%|███▌      | 5888/16384 [00:00<00:00, 11893.26it/s]DeepGEMM warmup:  44%|████▍     | 7222/16384 [00:00<00:00, 9547.22it/s] DeepGEMM warmup:  51%|█████     | 8292/16384 [00:00<00:01, 8079.58it/s]DeepGEMM warmup:  56%|█████▌    | 9180/16384 [00:01<00:01, 7109.35it/s]DeepGEMM warmup:  61%|██████    | 9941/16384 [00:01<00:01, 6351.49it/s]DeepGEMM warmup:  65%|██████▍   | 10605/16384 [00:01<00:01, 5744.98it/s]DeepGEMM warmup:  68%|██████▊   | 11194/16384 [00:01<00:00, 5299.55it/s]DeepGEMM warmup:  72%|███████▏  | 11729/16384 [00:01<00:00, 4882.25it/s]DeepGEMM warmup:  75%|███████▍  | 12217/16384 [00:01<00:00, 4573.17it/s]DeepGEMM warmup:  77%|███████▋  | 12670/16384 [00:01<00:00, 4326.03it/s]DeepGEMM warmup:  80%|███████▉  | 13097/16384 [00:01<00:00, 4073.55it/s]DeepGEMM warmup:  82%|████████▏ | 13498/16384 [00:02<00:00, 3890.84it/s]DeepGEMM warmup:  85%|████████▍ | 13881/16384 [00:02<00:00, 3721.27it/s]DeepGEMM warmup:  87%|████████▋ | 14248/16384 [00:02<00:00, 3555.97it/s]DeepGEMM warmup:  89%|████████▉ | 14599/16384 [00:02<00:00, 3437.71it/s]DeepGEMM warmup:  91%|█████████ | 14939/16384 [00:02<00:00, 3351.71it/s]DeepGEMM warmup:  93%|█████████▎| 15271/16384 [00:02<00:00, 3228.57it/s]DeepGEMM warmup:  95%|█████████▌| 15592/16384 [00:02<00:00, 3133.16it/s]DeepGEMM warmup:  97%|█████████▋| 15904/16384 [00:02<00:00, 3064.80it/s]DeepGEMM warmup:  99%|█████████▉| 16209/16384 [00:02<00:00, 3002.63it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:03<00:00, 5348.49it/s]
+[2026-10-25 05:58:54 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 05:58:54 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=8192, K=1280, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 05:58:54 TP0 EP0] Required memory for warmup: 0.28421783447265625GB, Available memory: 37.15948486328125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:  17%|█▋        | 2744/16384 [00:00<00:00, 27429.56it/s]DeepGEMM warmup:  33%|███▎      | 5487/16384 [00:00<00:00, 12825.85it/s]DeepGEMM warmup:  44%|████▎     | 7167/16384 [00:00<00:00, 9270.89it/s] DeepGEMM warmup:  51%|█████     | 8355/16384 [00:00<00:01, 7541.44it/s]DeepGEMM warmup:  57%|█████▋    | 9267/16384 [00:01<00:01, 6484.59it/s]DeepGEMM warmup:  61%|██████    | 10006/16384 [00:01<00:01, 5739.04it/s]DeepGEMM warmup:  65%|██████▍   | 10628/16384 [00:01<00:01, 5172.93it/s]DeepGEMM warmup:  68%|██████▊   | 11167/16384 [00:01<00:01, 4725.98it/s]DeepGEMM warmup:  71%|███████   | 11646/16384 [00:01<00:01, 4358.80it/s]DeepGEMM warmup:  74%|███████▎  | 12079/16384 [00:01<00:01, 4054.51it/s]DeepGEMM warmup:  76%|███████▌  | 12477/16384 [00:02<00:01, 3801.93it/s]DeepGEMM warmup:  78%|███████▊  | 12848/16384 [00:02<00:00, 3593.74it/s]DeepGEMM warmup:  81%|████████  | 13198/16384 [00:02<00:00, 3419.24it/s]DeepGEMM warmup:  83%|████████▎ | 13531/16384 [00:02<00:00, 3265.89it/s]DeepGEMM warmup:  85%|████████▍ | 13850/16384 [00:02<00:00, 3132.68it/s]DeepGEMM warmup:  86%|████████▋ | 14157/16384 [00:02<00:00, 3017.64it/s]DeepGEMM warmup:  88%|████████▊ | 14453/16384 [00:02<00:00, 2917.98it/s]DeepGEMM warmup:  90%|████████▉ | 14740/16384 [00:02<00:00, 2830.11it/s]DeepGEMM warmup:  92%|█████████▏| 15020/16384 [00:02<00:00, 2752.31it/s]DeepGEMM warmup:  93%|█████████▎| 15293/16384 [00:03<00:00, 2684.42it/s]DeepGEMM warmup:  95%|█████████▍| 15560/16384 [00:03<00:00, 2618.74it/s]DeepGEMM warmup:  97%|█████████▋| 15821/16384 [00:03<00:00, 2560.48it/s]DeepGEMM warmup:  98%|█████████▊| 16076/16384 [00:03<00:00, 2509.62it/s]DeepGEMM warmup: 100%|█████████▉| 16326/16384 [00:03<00:00, 2462.83it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:03<00:00, 4645.37it/s]
+[2026-10-25 05:58:58 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 05:58:58 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=5120, K=2048, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 05:58:58 TP0 EP0] Required memory for warmup: 0.20511627197265625GB, Available memory: 37.15948486328125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:  17%|█▋        | 2740/16384 [00:00<00:00, 27385.47it/s]DeepGEMM warmup:  33%|███▎      | 5479/16384 [00:00<00:00, 13183.30it/s]DeepGEMM warmup:  44%|████▍     | 7176/16384 [00:00<00:00, 9557.92it/s] DeepGEMM warmup:  51%|█████     | 8384/16384 [00:00<00:01, 7789.15it/s]DeepGEMM warmup:  57%|█████▋    | 9316/16384 [00:01<00:01, 6702.18it/s]DeepGEMM warmup:  61%|██████▏   | 10074/16384 [00:01<00:01, 5925.19it/s]DeepGEMM warmup:  65%|██████▌   | 10714/16384 [00:01<00:01, 5346.45it/s]DeepGEMM warmup:  69%|██████▉   | 11270/16384 [00:01<00:01, 4887.89it/s]DeepGEMM warmup:  72%|███████▏  | 11764/16384 [00:01<00:01, 4514.34it/s]DeepGEMM warmup:  75%|███████▍  | 12212/16384 [00:01<00:00, 4209.58it/s]DeepGEMM warmup:  77%|███████▋  | 12625/16384 [00:02<00:00, 3948.10it/s]DeepGEMM warmup:  79%|███████▉  | 13010/16384 [00:02<00:00, 3726.18it/s]DeepGEMM warmup:  82%|████████▏ | 13373/16384 [00:02<00:00, 3542.32it/s]DeepGEMM warmup:  84%|████████▎ | 13718/16384 [00:02<00:00, 3381.77it/s]DeepGEMM warmup:  86%|████████▌ | 14048/16384 [00:02<00:00, 3243.65it/s]DeepGEMM warmup:  88%|████████▊ | 14366/16384 [00:02<00:00, 3122.43it/s]DeepGEMM warmup:  90%|████████▉ | 14673/16384 [00:02<00:00, 3015.14it/s]DeepGEMM warmup:  91%|█████████▏| 14970/16384 [00:02<00:00, 2927.67it/s]DeepGEMM warmup:  93%|█████████▎| 15259/16384 [00:02<00:00, 2849.04it/s]DeepGEMM warmup:  95%|█████████▍| 15541/16384 [00:03<00:00, 2773.46it/s]DeepGEMM warmup:  97%|█████████▋| 15816/16384 [00:03<00:00, 2707.53it/s]DeepGEMM warmup:  98%|█████████▊| 16085/16384 [00:03<00:00, 2654.25it/s]DeepGEMM warmup: 100%|█████████▉| 16349/16384 [00:03<00:00, 2600.53it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:03<00:00, 4856.57it/s]
+[2026-10-25 05:59:02 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 05:59:02 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=1152, K=5120, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 05:59:02 TP0 EP0] Required memory for warmup: 0.13832712173461914GB, Available memory: 37.15948486328125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:  19%|█▊        | 3054/16384 [00:00<00:00, 30538.65it/s]DeepGEMM warmup:  37%|███▋      | 6108/16384 [00:00<00:00, 18248.43it/s][2026-10-25 05:59:02 TP2 EP1] [prewarm] block-fp8 linear prewarm done: warmed 210 module(s), 7 distinct (N,K) shape(s)=[(1152, 5120), (1792, 5120), (4096, 1280), (5120, 576), (5120, 2048), (8192, 1280), (25600, 6144)]
+DeepGEMM warmup:  50%|█████     | 8203/16384 [00:00<00:00, 13218.13it/s]DeepGEMM warmup:  60%|█████▉    | 9750/16384 [00:00<00:00, 10861.47it/s]DeepGEMM warmup:  67%|██████▋   | 10980/16384 [00:00<00:00, 9268.64it/s]DeepGEMM warmup:  73%|███████▎  | 11995/16384 [00:01<00:00, 8285.78it/s]DeepGEMM warmup:  79%|███████▊  | 12870/16384 [00:01<00:00, 7437.20it/s]DeepGEMM warmup:  83%|████████▎ | 13636/16384 [00:01<00:00, 6859.55it/s]DeepGEMM warmup:  87%|████████▋ | 14327/16384 [00:01<00:00, 6262.16it/s][2026-10-25 05:59:03 TP2 EP1] MoE vision-gate prewarm: 1 router spec(s) warmed
+[2026-10-25 05:59:03 TP2 EP1] DeepSeek V4 MHC prenorm prewarm: 22 n_splits buckets
+DeepGEMM warmup:  91%|█████████▏| 14951/16384 [00:01<00:00, 5855.11it/s]DeepGEMM warmup:  95%|█████████▍| 15528/16384 [00:01<00:00, 5550.98it/s]DeepGEMM warmup:  98%|█████████▊| 16073/16384 [00:01<00:00, 5187.42it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:02<00:00, 8081.85it/s]
+[2026-10-25 05:59:04 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 05:59:04 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=5120, K=576, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 05:59:04 TP0 EP0] Required memory for warmup: 0.16999363899230957GB, Available memory: 37.15948486328125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:  19%|█▉        | 3173/16384 [00:00<00:00, 31725.04it/s]DeepGEMM warmup:  39%|███▊      | 6346/16384 [00:00<00:00, 25632.69it/s]DeepGEMM warmup:  55%|█████▍    | 8982/16384 [00:00<00:00, 18746.07it/s]DeepGEMM warmup:  67%|██████▋   | 11033/16384 [00:00<00:00, 15069.79it/s]DeepGEMM warmup:  77%|███████▋  | 12691/16384 [00:00<00:00, 12815.98it/s]DeepGEMM warmup:  86%|████████▌ | 14078/16384 [00:00<00:00, 11238.73it/s]DeepGEMM warmup:  93%|█████████▎| 15269/16384 [00:01<00:00, 10047.48it/s]DeepGEMM warmup: 100%|█████████▉| 16313/16384 [00:01<00:00, 9143.55it/s] DeepGEMM warmup: 100%|██████████| 16384/16384 [00:01<00:00, 12552.34it/s]
+[2026-10-25 05:59:05 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 05:59:05 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=25600, K=6144, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 05:59:05 TP0 EP0] Required memory for warmup: 1.0454940795898438GB, Available memory: 37.15948486328125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:   7%|▋         | 1121/16384 [00:00<00:01, 11193.04it/s]DeepGEMM warmup:  14%|█▎        | 2241/16384 [00:00<00:04, 3180.59it/s] DeepGEMM warmup:  17%|█▋        | 2827/16384 [00:01<00:06, 2203.48it/s]DeepGEMM warmup:  20%|█▉        | 3205/16384 [00:01<00:07, 1785.91it/s]DeepGEMM warmup:  21%|██        | 3476/16384 [00:01<00:08, 1536.40it/s]DeepGEMM warmup:  22%|██▏       | 3684/16384 [00:01<00:09, 1362.99it/s]DeepGEMM warmup:  24%|██▎       | 3851/16384 [00:02<00:10, 1233.68it/s]DeepGEMM warmup:  24%|██▍       | 3991/16384 [00:02<00:10, 1132.68it/s]DeepGEMM warmup:  25%|██▌       | 4112/16384 [00:02<00:11, 1048.14it/s]DeepGEMM warmup:  26%|██▌       | 4219/16384 [00:02<00:12, 979.75it/s] DeepGEMM warmup:  26%|██▋       | 4316/16384 [00:02<00:13, 918.19it/s]DeepGEMM warmup:  27%|██▋       | 4406/16384 [00:02<00:13, 867.19it/s]DeepGEMM warmup:  27%|██▋       | 4490/16384 [00:03<00:14, 825.84it/s]DeepGEMM warmup:  28%|██▊       | 4570/16384 [00:03<00:15, 786.55it/s]DeepGEMM warmup:  28%|██▊       | 4646/16384 [00:03<00:15, 754.10it/s]DeepGEMM warmup:  29%|██▉       | 4719/16384 [00:03<00:16, 727.49it/s]DeepGEMM warmup:  29%|██▉       | 4790/16384 [00:03<00:16, 702.80it/s]DeepGEMM warmup:  30%|██▉       | 4859/16384 [00:03<00:16, 683.32it/s]DeepGEMM warmup:  30%|███       | 4926/16384 [00:03<00:17, 665.28it/s]DeepGEMM warmup:  30%|███       | 4992/16384 [00:03<00:17, 651.86it/s]DeepGEMM warmup:  31%|███       | 5057/16384 [00:03<00:17, 636.72it/s]DeepGEMM warmup:  31%|███▏      | 5121/16384 [00:04<00:17, 625.77it/s]DeepGEMM warmup:  32%|███▏      | 5184/16384 [00:04<00:18, 614.24it/s]DeepGEMM warmup:  32%|███▏      | 5246/16384 [00:04<00:18, 606.00it/s]DeepGEMM warmup:  32%|███▏      | 5307/16384 [00:04<00:18, 595.23it/s]DeepGEMM warmup:  33%|███▎      | 5367/16384 [00:04<00:18, 587.29it/s]DeepGEMM warmup:  33%|███▎      | 5426/16384 [00:04<00:18, 578.70it/s]DeepGEMM warmup:  33%|███▎      | 5484/16384 [00:04<00:19, 571.94it/s]DeepGEMM warmup:  34%|███▍      | 5542/16384 [00:04<00:19, 564.41it/s]DeepGEMM warmup:  34%|███▍      | 5599/16384 [00:04<00:19, 557.43it/s]DeepGEMM warmup:  35%|███▍      | 5655/16384 [00:04<00:19, 550.81it/s]DeepGEMM warmup:  35%|███▍      | 5711/16384 [00:05<00:19, 543.38it/s]DeepGEMM warmup:  35%|███▌      | 5766/16384 [00:05<00:19, 538.22it/s]DeepGEMM warmup:  36%|███▌      | 5820/16384 [00:05<00:19, 531.06it/s]DeepGEMM warmup:  36%|███▌      | 5874/16384 [00:05<00:19, 526.40it/s]DeepGEMM warmup:  36%|███▌      | 5927/16384 [00:05<00:20, 520.78it/s]DeepGEMM warmup:  36%|███▋      | 5980/16384 [00:05<00:20, 515.49it/s]DeepGEMM warmup:  37%|███▋      | 6032/16384 [00:05<00:20, 510.96it/s]DeepGEMM warmup:  37%|███▋      | 6084/16384 [00:05<00:20, 505.37it/s]DeepGEMM warmup:  37%|███▋      | 6135/16384 [00:05<00:20, 501.49it/s]DeepGEMM warmup:  38%|███▊      | 6186/16384 [00:06<00:20, 496.56it/s]DeepGEMM warmup:  38%|███▊      | 6236/16384 [00:06<00:20, 492.47it/s]DeepGEMM warmup:  38%|███▊      | 6286/16384 [00:06<00:20, 488.83it/s]DeepGEMM warmup:  39%|███▊      | 6335/16384 [00:06<00:20, 483.68it/s]DeepGEMM warmup:  39%|███▉      | 6384/16384 [00:06<00:20, 480.05it/s]DeepGEMM warmup:  39%|███▉      | 6433/16384 [00:06<00:20, 475.77it/s]DeepGEMM warmup:  40%|███▉      | 6481/16384 [00:06<00:20, 471.81it/s]DeepGEMM warmup:  40%|███▉      | 6529/16384 [00:06<00:21, 468.97it/s]DeepGEMM warmup:  40%|████      | 6576/16384 [00:06<00:21, 464.21it/s]DeepGEMM warmup:  40%|████      | 6623/16384 [00:06<00:21, 460.74it/s]DeepGEMM warmup:  41%|████      | 6670/16384 [00:07<00:21, 457.47it/s]DeepGEMM warmup:  41%|████      | 6716/16384 [00:07<00:21, 452.72it/s]DeepGEMM warmup:  41%|████▏     | 6762/16384 [00:07<00:21, 449.66it/s]DeepGEMM warmup:  42%|████▏     | 6807/16384 [00:07<00:21, 446.20it/s]DeepGEMM warmup:  42%|████▏     | 6852/16384 [00:07<00:21, 442.62it/s]DeepGEMM warmup:  42%|████▏     | 6897/16384 [00:07<00:21, 440.20it/s]DeepGEMM warmup:  42%|████▏     | 6942/16384 [00:07<00:21, 436.92it/s]DeepGEMM warmup:  43%|████▎     | 6986/16384 [00:07<00:21, 433.73it/s]DeepGEMM warmup:  43%|████▎     | 7030/16384 [00:07<00:21, 431.49it/s]DeepGEMM warmup:  43%|████▎     | 7074/16384 [00:07<00:21, 428.15it/s]DeepGEMM warmup:  43%|████▎     | 7117/16384 [00:08<00:21, 425.15it/s]DeepGEMM warmup:  44%|████▎     | 7160/16384 [00:08<00:21, 423.03it/s]DeepGEMM warmup:  44%|████▍     | 7203/16384 [00:08<00:21, 419.92it/s]DeepGEMM warmup:  44%|████▍     | 7245/16384 [00:08<00:21, 417.26it/s]DeepGEMM warmup:  44%|████▍     | 7287/16384 [00:08<00:21, 415.40it/s]DeepGEMM warmup:  45%|████▍     | 7329/16384 [00:08<00:21, 412.30it/s]DeepGEMM warmup:  45%|████▍     | 7371/16384 [00:08<00:22, 409.43it/s]DeepGEMM warmup:  45%|████▌     | 7412/16384 [00:08<00:22, 407.45it/s]DeepGEMM warmup:  45%|████▌     | 7453/16384 [00:08<00:22, 404.57it/s]DeepGEMM warmup:  46%|████▌     | 7494/16384 [00:09<00:22, 401.71it/s]DeepGEMM warmup:  46%|████▌     | 7535/16384 [00:09<00:22, 399.70it/s]DeepGEMM warmup:  46%|████▌     | 7575/16384 [00:09<00:22, 397.44it/s]DeepGEMM warmup:  46%|████▋     | 7615/16384 [00:09<00:22, 394.91it/s]DeepGEMM warmup:  47%|████▋     | 7655/16384 [00:09<00:22, 393.13it/s]DeepGEMM warmup:  47%|████▋     | 7695/16384 [00:09<00:22, 391.00it/s]DeepGEMM warmup:  47%|████▋     | 7735/16384 [00:09<00:22, 387.60it/s]DeepGEMM warmup:  47%|████▋     | 7774/16384 [00:09<00:22, 385.16it/s]DeepGEMM warmup:  48%|████▊     | 7813/16384 [00:09<00:22, 383.57it/s]DeepGEMM warmup:  48%|████▊     | 7852/16384 [00:09<00:22, 380.81it/s]DeepGEMM warmup:  48%|████▊     | 7891/16384 [00:10<00:22, 379.22it/s]DeepGEMM warmup:  48%|████▊     | 7929/16384 [00:10<00:22, 378.13it/s]DeepGEMM warmup:  49%|████▊     | 7967/16384 [00:10<00:22, 375.72it/s]DeepGEMM warmup:  49%|████▉     | 8005/16384 [00:10<00:22, 373.33it/s]DeepGEMM warmup:  49%|████▉     | 8043/16384 [00:10<00:22, 371.87it/s]DeepGEMM warmup:  49%|████▉     | 8081/16384 [00:10<00:22, 370.25it/s]DeepGEMM warmup:  50%|████▉     | 8119/16384 [00:10<00:22, 368.11it/s]DeepGEMM warmup:  50%|████▉     | 8156/16384 [00:10<00:22, 366.63it/s]DeepGEMM warmup:  50%|█████     | 8193/16384 [00:10<00:22, 365.57it/s]DeepGEMM warmup:  50%|█████     | 8230/16384 [00:10<00:22, 362.96it/s]DeepGEMM warmup:  50%|█████     | 8267/16384 [00:11<00:22, 360.98it/s]DeepGEMM warmup:  51%|█████     | 8304/16384 [00:11<00:22, 359.71it/s]DeepGEMM warmup:  51%|█████     | 8340/16384 [00:11<00:22, 358.01it/s]DeepGEMM warmup:  51%|█████     | 8376/16384 [00:11<00:22, 355.97it/s]DeepGEMM warmup:  51%|█████▏    | 8412/16384 [00:11<00:22, 354.65it/s]DeepGEMM warmup:  52%|█████▏    | 8448/16384 [00:11<00:22, 353.73it/s]DeepGEMM warmup:  52%|█████▏    | 8484/16384 [00:11<00:22, 351.42it/s]DeepGEMM warmup:  52%|█████▏    | 8520/16384 [00:11<00:22, 349.10it/s]DeepGEMM warmup:  52%|█████▏    | 8555/16384 [00:11<00:22, 347.41it/s]DeepGEMM warmup:  52%|█████▏    | 8590/16384 [00:12<00:22, 345.77it/s]DeepGEMM warmup:  53%|█████▎    | 8625/16384 [00:12<00:22, 343.65it/s]DeepGEMM warmup:  53%|█████▎    | 8660/16384 [00:12<00:22, 342.16it/s]DeepGEMM warmup:  53%|█████▎    | 8695/16384 [00:12<00:22, 341.12it/s]DeepGEMM warmup:  53%|█████▎    | 8730/16384 [00:12<00:22, 338.98it/s]DeepGEMM warmup:  53%|█████▎    | 8764/16384 [00:12<00:22, 336.91it/s]DeepGEMM warmup:  54%|█████▎    | 8798/16384 [00:12<00:22, 335.54it/s]DeepGEMM warmup:  54%|█████▍    | 8832/16384 [00:12<00:22, 334.60it/s]DeepGEMM warmup:  54%|█████▍    | 8866/16384 [00:12<00:22, 332.50it/s]DeepGEMM warmup:  54%|█████▍    | 8900/16384 [00:12<00:22, 331.10it/s]DeepGEMM warmup:  55%|█████▍    | 8934/16384 [00:13<00:22, 330.27it/s]DeepGEMM warmup:  55%|█████▍    | 8968/16384 [00:13<00:22, 329.38it/s]DeepGEMM warmup:  55%|█████▍    | 9001/16384 [00:13<00:22, 327.53it/s]DeepGEMM warmup:  55%|█████▌    | 9034/16384 [00:13<00:22, 326.23it/s]DeepGEMM warmup:  55%|█████▌    | 9067/16384 [00:13<00:22, 325.32it/s]DeepGEMM warmup:  56%|█████▌    | 9100/16384 [00:13<00:22, 324.32it/s]DeepGEMM warmup:  56%|█████▌    | 9133/16384 [00:13<00:22, 322.64it/s]DeepGEMM warmup:  56%|█████▌    | 9166/16384 [00:13<00:22, 321.47it/s]DeepGEMM warmup:  56%|█████▌    | 9199/16384 [00:13<00:22, 320.65it/s]DeepGEMM warmup:  56%|█████▋    | 9232/16384 [00:13<00:22, 319.52it/s]DeepGEMM warmup:  57%|█████▋    | 9264/16384 [00:14<00:22, 317.86it/s]DeepGEMM warmup:  57%|█████▋    | 9296/16384 [00:14<00:22, 316.62it/s]DeepGEMM warmup:  57%|█████▋    | 9328/16384 [00:14<00:22, 315.85it/s]DeepGEMM warmup:  57%|█████▋    | 9360/16384 [00:14<00:22, 314.79it/s]DeepGEMM warmup:  57%|█████▋    | 9392/16384 [00:14<00:22, 313.28it/s]DeepGEMM warmup:  58%|█████▊    | 9424/16384 [00:14<00:22, 312.21it/s]DeepGEMM warmup:  58%|█████▊    | 9456/16384 [00:14<00:22, 311.48it/s]DeepGEMM warmup:  58%|█████▊    | 9488/16384 [00:14<00:22, 310.40it/s]DeepGEMM warmup:  58%|█████▊    | 9520/16384 [00:14<00:22, 308.83it/s]DeepGEMM warmup:  58%|█████▊    | 9551/16384 [00:15<00:22, 307.76it/s]DeepGEMM warmup:  58%|█████▊    | 9582/16384 [00:15<00:22, 306.99it/s]DeepGEMM warmup:  59%|█████▊    | 9613/16384 [00:15<00:22, 306.10it/s]DeepGEMM warmup:  59%|█████▉    | 9644/16384 [00:15<00:22, 304.71it/s]DeepGEMM warmup:  59%|█████▉    | 9675/16384 [00:15<00:22, 303.73it/s]DeepGEMM warmup:  59%|█████▉    | 9706/16384 [00:15<00:22, 303.05it/s]DeepGEMM warmup:  59%|█████▉    | 9737/16384 [00:15<00:21, 302.22it/s]DeepGEMM warmup:  60%|█████▉    | 9768/16384 [00:15<00:22, 300.26it/s]DeepGEMM warmup:  60%|█████▉    | 9799/16384 [00:15<00:22, 298.99it/s]DeepGEMM warmup:  60%|█████▉    | 9829/16384 [00:15<00:21, 298.19it/s]DeepGEMM warmup:  60%|██████    | 9859/16384 [00:16<00:21, 297.63it/s]DeepGEMM warmup:  60%|██████    | 9889/16384 [00:16<00:21, 296.06it/s]DeepGEMM warmup:  61%|██████    | 9919/16384 [00:16<00:21, 295.19it/s]DeepGEMM warmup:  61%|██████    | 9949/16384 [00:16<00:21, 294.60it/s]DeepGEMM warmup:  61%|██████    | 9979/16384 [00:16<00:21, 294.22it/s]DeepGEMM warmup:  61%|██████    | 10009/16384 [00:16<00:21, 292.85it/s]DeepGEMM warmup:  61%|██████▏   | 10039/16384 [00:16<00:21, 291.65it/s]DeepGEMM warmup:  61%|██████▏   | 10069/16384 [00:16<00:21, 290.83it/s]DeepGEMM warmup:  62%|██████▏   | 10099/16384 [00:16<00:21, 290.25it/s]DeepGEMM warmup:  62%|██████▏   | 10129/16384 [00:16<00:21, 289.36it/s]DeepGEMM warmup:  62%|██████▏   | 10158/16384 [00:17<00:21, 288.25it/s]DeepGEMM warmup:  62%|██████▏   | 10187/16384 [00:17<00:21, 287.46it/s]DeepGEMM warmup:  62%|██████▏   | 10216/16384 [00:17<00:21, 286.89it/s]DeepGEMM warmup:  63%|██████▎   | 10245/16384 [00:17<00:21, 286.42it/s]DeepGEMM warmup:  63%|██████▎   | 10274/16384 [00:17<00:21, 284.99it/s]DeepGEMM warmup:  63%|██████▎   | 10303/16384 [00:17<00:21, 283.98it/s]DeepGEMM warmup:  63%|██████▎   | 10332/16384 [00:17<00:21, 283.28it/s]DeepGEMM warmup:  63%|██████▎   | 10361/16384 [00:17<00:21, 282.81it/s]DeepGEMM warmup:  63%|██████▎   | 10390/16384 [00:17<00:21, 281.81it/s]DeepGEMM warmup:  64%|██████▎   | 10419/16384 [00:17<00:21, 280.76it/s]DeepGEMM warmup:  64%|██████▍   | 10448/16384 [00:18<00:21, 280.03it/s]DeepGEMM warmup:  64%|██████▍   | 10477/16384 [00:18<00:21, 279.52it/s]DeepGEMM warmup:  64%|██████▍   | 10505/16384 [00:18<00:21, 278.94it/s]DeepGEMM warmup:  64%|██████▍   | 10533/16384 [00:18<00:21, 277.67it/s]DeepGEMM warmup:  64%|██████▍   | 10561/16384 [00:18<00:21, 276.76it/s]DeepGEMM warmup:  65%|██████▍   | 10589/16384 [00:18<00:20, 276.12it/s]DeepGEMM warmup:  65%|██████▍   | 10617/16384 [00:18<00:20, 275.68it/s]DeepGEMM warmup:  65%|██████▍   | 10645/16384 [00:18<00:20, 274.80it/s]DeepGEMM warmup:  65%|██████▌   | 10673/16384 [00:18<00:20, 273.86it/s]DeepGEMM warmup:  65%|██████▌   | 10701/16384 [00:19<00:20, 273.20it/s]DeepGEMM warmup:  65%|██████▌   | 10729/16384 [00:19<00:20, 272.73it/s]DeepGEMM warmup:  66%|██████▌   | 10757/16384 [00:19<00:20, 272.31it/s]DeepGEMM warmup:  66%|██████▌   | 10785/16384 [00:19<00:20, 270.70it/s]DeepGEMM warmup:  66%|██████▌   | 10813/16384 [00:19<00:20, 269.65it/s]DeepGEMM warmup:  66%|██████▌   | 10840/16384 [00:19<00:20, 268.97it/s]DeepGEMM warmup:  66%|██████▋   | 10867/16384 [00:19<00:20, 268.54it/s]DeepGEMM warmup:  66%|██████▋   | 10894/16384 [00:19<00:20, 267.81it/s]DeepGEMM warmup:  67%|██████▋   | 10921/16384 [00:19<00:20, 266.85it/s]DeepGEMM warmup:  67%|██████▋   | 10948/16384 [00:19<00:20, 266.29it/s]DeepGEMM warmup:  67%|██████▋   | 10975/16384 [00:20<00:20, 265.89it/s]DeepGEMM warmup:  67%|██████▋   | 11002/16384 [00:20<00:20, 265.63it/s]DeepGEMM warmup:  67%|██████▋   | 11029/16384 [00:20<00:20, 264.70it/s]DeepGEMM warmup:  67%|██████▋   | 11056/16384 [00:20<00:20, 263.74it/s]DeepGEMM warmup:  68%|██████▊   | 11083/16384 [00:20<00:20, 263.06it/s]DeepGEMM warmup:  68%|██████▊   | 11110/16384 [00:20<00:20, 262.59it/s]DeepGEMM warmup:  68%|██████▊   | 11137/16384 [00:20<00:20, 262.27it/s]DeepGEMM warmup:  68%|██████▊   | 11164/16384 [00:20<00:19, 261.25it/s]DeepGEMM warmup:  68%|██████▊   | 11191/16384 [00:20<00:19, 260.49it/s]DeepGEMM warmup:  68%|██████▊   | 11218/16384 [00:20<00:19, 259.95it/s]DeepGEMM warmup:  69%|██████▊   | 11244/16384 [00:21<00:19, 259.60it/s]DeepGEMM warmup:  69%|██████▉   | 11270/16384 [00:21<00:19, 259.22it/s]DeepGEMM warmup:  69%|██████▉   | 11296/16384 [00:21<00:19, 258.11it/s]DeepGEMM warmup:  69%|██████▉   | 11322/16384 [00:21<00:19, 257.33it/s]DeepGEMM warmup:  69%|██████▉   | 11348/16384 [00:21<00:19, 256.78it/s]DeepGEMM warmup:  69%|██████▉   | 11374/16384 [00:21<00:19, 256.40it/s]DeepGEMM warmup:  70%|██████▉   | 11400/16384 [00:21<00:19, 255.96it/s]DeepGEMM warmup:  70%|██████▉   | 11426/16384 [00:21<00:19, 254.99it/s]DeepGEMM warmup:  70%|██████▉   | 11452/16384 [00:21<00:19, 254.30it/s]DeepGEMM warmup:  70%|███████   | 11478/16384 [00:21<00:19, 253.83it/s]DeepGEMM warmup:  70%|███████   | 11504/16384 [00:22<00:19, 253.50it/s]DeepGEMM warmup:  70%|███████   | 11530/16384 [00:22<00:19, 253.02it/s]DeepGEMM warmup:  71%|███████   | 11556/16384 [00:22<00:19, 252.00it/s]DeepGEMM warmup:  71%|███████   | 11582/16384 [00:22<00:19, 251.28it/s]DeepGEMM warmup:  71%|███████   | 11608/16384 [00:22<00:19, 250.79it/s]DeepGEMM warmup:  71%|███████   | 11634/16384 [00:22<00:18, 250.44it/s]DeepGEMM warmup:  71%|███████   | 11660/16384 [00:22<00:18, 249.88it/s]DeepGEMM warmup:  71%|███████▏  | 11685/16384 [00:22<00:18, 248.95it/s]DeepGEMM warmup:  71%|███████▏  | 11710/16384 [00:22<00:18, 248.21it/s]DeepGEMM warmup:  72%|███████▏  | 11735/16384 [00:23<00:18, 247.72it/s]DeepGEMM warmup:  72%|███████▏  | 11760/16384 [00:23<00:18, 247.42it/s]DeepGEMM warmup:  72%|███████▏  | 11785/16384 [00:23<00:18, 246.87it/s]DeepGEMM warmup:  72%|███████▏  | 11810/16384 [00:23<00:18, 245.75it/s]DeepGEMM warmup:  72%|███████▏  | 11835/16384 [00:23<00:18, 245.03it/s]DeepGEMM warmup:  72%|███████▏  | 11860/16384 [00:23<00:18, 244.60it/s]DeepGEMM warmup:  73%|███████▎  | 11885/16384 [00:23<00:18, 244.33it/s]DeepGEMM warmup:  73%|███████▎  | 11910/16384 [00:23<00:18, 244.02it/s]DeepGEMM warmup:  73%|███████▎  | 11935/16384 [00:23<00:18, 242.98it/s]DeepGEMM warmup:  73%|███████▎  | 11960/16384 [00:23<00:18, 242.42it/s]DeepGEMM warmup:  73%|███████▎  | 11985/16384 [00:24<00:18, 242.04it/s]DeepGEMM warmup:  73%|███████▎  | 12010/16384 [00:24<00:18, 241.76it/s]DeepGEMM warmup:  73%|███████▎  | 12035/16384 [00:24<00:18, 241.57it/s]DeepGEMM warmup:  74%|███████▎  | 12060/16384 [00:24<00:17, 240.69it/s]DeepGEMM warmup:  74%|███████▍  | 12085/16384 [00:24<00:17, 240.11it/s]DeepGEMM warmup:  74%|███████▍  | 12110/16384 [00:24<00:17, 239.70it/s]DeepGEMM warmup:  74%|███████▍  | 12134/16384 [00:24<00:17, 239.43it/s]DeepGEMM warmup:  74%|███████▍  | 12158/16384 [00:24<00:17, 239.19it/s]DeepGEMM warmup:  74%|███████▍  | 12182/16384 [00:24<00:17, 238.30it/s]DeepGEMM warmup:  74%|███████▍  | 12206/16384 [00:24<00:17, 237.58it/s]DeepGEMM warmup:  75%|███████▍  | 12230/16384 [00:25<00:17, 237.09it/s]DeepGEMM warmup:  75%|███████▍  | 12254/16384 [00:25<00:17, 236.74it/s]DeepGEMM warmup:  75%|███████▍  | 12278/16384 [00:25<00:17, 236.50it/s]DeepGEMM warmup:  75%|███████▌  | 12302/16384 [00:25<00:17, 236.02it/s]DeepGEMM warmup:  75%|███████▌  | 12326/16384 [00:25<00:17, 235.33it/s]DeepGEMM warmup:  75%|███████▌  | 12350/16384 [00:25<00:17, 234.84it/s]DeepGEMM warmup:  76%|███████▌  | 12374/16384 [00:25<00:17, 234.47it/s]DeepGEMM warmup:  76%|███████▌  | 12398/16384 [00:25<00:17, 234.23it/s]DeepGEMM warmup:  76%|███████▌  | 12422/16384 [00:25<00:16, 233.98it/s]DeepGEMM warmup:  76%|███████▌  | 12446/16384 [00:25<00:16, 233.07it/s]DeepGEMM warmup:  76%|███████▌  | 12470/16384 [00:26<00:16, 232.38it/s]DeepGEMM warmup:  76%|███████▋  | 12494/16384 [00:26<00:16, 231.91it/s]DeepGEMM warmup:  76%|███████▋  | 12518/16384 [00:26<00:16, 231.63it/s]DeepGEMM warmup:  77%|███████▋  | 12542/16384 [00:26<00:16, 231.45it/s]DeepGEMM warmup:  77%|███████▋  | 12566/16384 [00:26<00:16, 230.77it/s]DeepGEMM warmup:  77%|███████▋  | 12590/16384 [00:26<00:16, 230.17it/s]DeepGEMM warmup:  77%|███████▋  | 12614/16384 [00:26<00:16, 229.74it/s]DeepGEMM warmup:  77%|███████▋  | 12637/16384 [00:26<00:16, 229.44it/s]DeepGEMM warmup:  77%|███████▋  | 12660/16384 [00:26<00:16, 229.23it/s]DeepGEMM warmup:  77%|███████▋  | 12683/16384 [00:27<00:16, 228.85it/s]DeepGEMM warmup:  78%|███████▊  | 12706/16384 [00:27<00:16, 228.12it/s]DeepGEMM warmup:  78%|███████▊  | 12729/16384 [00:27<00:16, 227.60it/s]DeepGEMM warmup:  78%|███████▊  | 12752/16384 [00:27<00:15, 227.24it/s]DeepGEMM warmup:  78%|███████▊  | 12775/16384 [00:27<00:15, 226.97it/s]DeepGEMM warmup:  78%|███████▊  | 12798/16384 [00:27<00:15, 226.80it/s]DeepGEMM warmup:  78%|███████▊  | 12821/16384 [00:27<00:15, 225.96it/s]DeepGEMM warmup:  78%|███████▊  | 12844/16384 [00:27<00:15, 225.21it/s]DeepGEMM warmup:  79%|███████▊  | 12867/16384 [00:27<00:15, 224.74it/s]DeepGEMM warmup:  79%|███████▊  | 12890/16384 [00:27<00:15, 224.43it/s]DeepGEMM warmup:  79%|███████▉  | 12913/16384 [00:28<00:15, 224.23it/s]DeepGEMM warmup:  79%|███████▉  | 12936/16384 [00:28<00:15, 223.90it/s]DeepGEMM warmup:  79%|███████▉  | 12959/16384 [00:28<00:15, 223.11it/s]DeepGEMM warmup:  79%|███████▉  | 12982/16384 [00:28<00:15, 222.67it/s]DeepGEMM warmup:  79%|███████▉  | 13005/16384 [00:28<00:15, 222.39it/s]DeepGEMM warmup:  80%|███████▉  | 13028/16384 [00:28<00:15, 222.20it/s]DeepGEMM warmup:  80%|███████▉  | 13051/16384 [00:28<00:15, 222.06it/s]DeepGEMM warmup:  80%|███████▉  | 13074/16384 [00:28<00:14, 221.46it/s]DeepGEMM warmup:  80%|███████▉  | 13097/16384 [00:28<00:14, 220.86it/s]DeepGEMM warmup:  80%|████████  | 13120/16384 [00:28<00:14, 220.42it/s]DeepGEMM warmup:  80%|████████  | 13143/16384 [00:29<00:14, 220.17it/s]DeepGEMM warmup:  80%|████████  | 13166/16384 [00:29<00:14, 219.99it/s]DeepGEMM warmup:  80%|████████  | 13188/16384 [00:29<00:14, 219.83it/s]DeepGEMM warmup:  81%|████████  | 13210/16384 [00:29<00:14, 219.09it/s]DeepGEMM warmup:  81%|████████  | 13232/16384 [00:29<00:14, 218.57it/s]DeepGEMM warmup:  81%|████████  | 13254/16384 [00:29<00:14, 218.19it/s]DeepGEMM warmup:  81%|████████  | 13276/16384 [00:29<00:14, 217.92it/s]DeepGEMM warmup:  81%|████████  | 13298/16384 [00:29<00:14, 217.72it/s]DeepGEMM warmup:  81%|████████▏ | 13320/16384 [00:29<00:14, 217.46it/s]DeepGEMM warmup:  81%|████████▏ | 13342/16384 [00:30<00:14, 216.79it/s]DeepGEMM warmup:  82%|████████▏ | 13364/16384 [00:30<00:13, 216.35it/s]DeepGEMM warmup:  82%|████████▏ | 13386/16384 [00:30<00:13, 216.04it/s]DeepGEMM warmup:  82%|████████▏ | 13408/16384 [00:30<00:13, 215.80it/s]DeepGEMM warmup:  82%|████████▏ | 13430/16384 [00:30<00:13, 215.64it/s]DeepGEMM warmup:  82%|████████▏ | 13452/16384 [00:30<00:13, 215.26it/s]DeepGEMM warmup:  82%|████████▏ | 13474/16384 [00:30<00:13, 214.59it/s]DeepGEMM warmup:  82%|████████▏ | 13496/16384 [00:30<00:13, 214.13it/s]DeepGEMM warmup:  83%|████████▎ | 13518/16384 [00:30<00:13, 213.80it/s]DeepGEMM warmup:  83%|████████▎ | 13540/16384 [00:30<00:13, 213.59it/s]DeepGEMM warmup:  83%|████████▎ | 13562/16384 [00:31<00:13, 213.42it/s]DeepGEMM warmup:  83%|████████▎ | 13584/16384 [00:31<00:13, 212.97it/s]DeepGEMM warmup:  83%|████████▎ | 13606/16384 [00:31<00:13, 212.40it/s]DeepGEMM warmup:  83%|████████▎ | 13628/16384 [00:31<00:12, 212.02it/s]DeepGEMM warmup:  83%|████████▎ | 13650/16384 [00:31<00:12, 211.74it/s]DeepGEMM warmup:  83%|████████▎ | 13672/16384 [00:31<00:12, 211.54it/s]DeepGEMM warmup:  84%|████████▎ | 13694/16384 [00:31<00:12, 211.41it/s]DeepGEMM warmup:  84%|████████▎ | 13716/16384 [00:31<00:12, 210.84it/s]DeepGEMM warmup:  84%|████████▍ | 13738/16384 [00:31<00:12, 210.30it/s]DeepGEMM warmup:  84%|████████▍ | 13760/16384 [00:31<00:12, 209.92it/s]DeepGEMM warmup:  84%|████████▍ | 13781/16384 [00:32<00:12, 209.65it/s]DeepGEMM warmup:  84%|████████▍ | 13802/16384 [00:32<00:12, 209.47it/s]DeepGEMM warmup:  84%|████████▍ | 13823/16384 [00:32<00:12, 209.33it/s]DeepGEMM warmup:  84%|████████▍ | 13844/16384 [00:32<00:12, 208.62it/s]DeepGEMM warmup:  85%|████████▍ | 13865/16384 [00:32<00:12, 208.01it/s]DeepGEMM warmup:  85%|████████▍ | 13886/16384 [00:32<00:12, 207.62it/s]DeepGEMM warmup:  85%|████████▍ | 13907/16384 [00:32<00:11, 207.38it/s]DeepGEMM warmup:  85%|████████▌ | 13928/16384 [00:32<00:11, 207.24it/s]DeepGEMM warmup:  85%|████████▌ | 13949/16384 [00:32<00:11, 207.13it/s]DeepGEMM warmup:  85%|████████▌ | 13970/16384 [00:32<00:11, 206.56it/s]DeepGEMM warmup:  85%|████████▌ | 13991/16384 [00:33<00:11, 206.06it/s]DeepGEMM warmup:  86%|████████▌ | 14012/16384 [00:33<00:11, 205.75it/s]DeepGEMM warmup:  86%|████████▌ | 14033/16384 [00:33<00:11, 205.55it/s]DeepGEMM warmup:  86%|████████▌ | 14054/16384 [00:33<00:11, 205.40it/s]DeepGEMM warmup:  86%|████████▌ | 14075/16384 [00:33<00:11, 205.29it/s]DeepGEMM warmup:  86%|████████▌ | 14096/16384 [00:33<00:11, 204.86it/s]DeepGEMM warmup:  86%|████████▌ | 14117/16384 [00:33<00:11, 204.36it/s]DeepGEMM warmup:  86%|████████▋ | 14138/16384 [00:33<00:11, 204.05it/s]DeepGEMM warmup:  86%|████████▋ | 14159/16384 [00:33<00:10, 203.80it/s]DeepGEMM warmup:  87%|████████▋ | 14180/16384 [00:34<00:10, 203.62it/s]DeepGEMM warmup:  87%|████████▋ | 14201/16384 [00:34<00:10, 203.51it/s]DeepGEMM warmup:  87%|████████▋ | 14222/16384 [00:34<00:10, 203.12it/s]DeepGEMM warmup:  87%|████████▋ | 14243/16384 [00:34<00:10, 202.54it/s]DeepGEMM warmup:  87%|████████▋ | 14264/16384 [00:34<00:10, 202.15it/s]DeepGEMM warmup:  87%|████████▋ | 14285/16384 [00:34<00:10, 201.88it/s]DeepGEMM warmup:  87%|████████▋ | 14306/16384 [00:34<00:10, 201.70it/s]DeepGEMM warmup:  87%|████████▋ | 14327/16384 [00:34<00:10, 201.57it/s]DeepGEMM warmup:  88%|████████▊ | 14348/16384 [00:34<00:10, 201.26it/s]DeepGEMM warmup:  88%|████████▊ | 14369/16384 [00:34<00:10, 200.77it/s]DeepGEMM warmup:  88%|████████▊ | 14390/16384 [00:35<00:09, 200.43it/s]DeepGEMM warmup:  88%|████████▊ | 14411/16384 [00:35<00:09, 200.19it/s]DeepGEMM warmup:  88%|████████▊ | 14432/16384 [00:35<00:09, 200.02it/s]DeepGEMM warmup:  88%|████████▊ | 14453/16384 [00:35<00:09, 199.90it/s]DeepGEMM warmup:  88%|████████▊ | 14473/16384 [00:35<00:09, 199.65it/s]DeepGEMM warmup:  88%|████████▊ | 14493/16384 [00:35<00:09, 199.06it/s]DeepGEMM warmup:  89%|████████▊ | 14513/16384 [00:35<00:09, 198.66it/s]DeepGEMM warmup:  89%|████████▊ | 14533/16384 [00:35<00:09, 198.35it/s]DeepGEMM warmup:  89%|████████▉ | 14553/16384 [00:35<00:09, 198.12it/s]DeepGEMM warmup:  89%|████████▉ | 14573/16384 [00:35<00:09, 197.98it/s]DeepGEMM warmup:  89%|████████▉ | 14593/16384 [00:36<00:09, 197.87it/s]DeepGEMM warmup:  89%|████████▉ | 14613/16384 [00:36<00:08, 197.36it/s]DeepGEMM warmup:  89%|████████▉ | 14633/16384 [00:36<00:08, 196.97it/s]DeepGEMM warmup:  89%|████████▉ | 14653/16384 [00:36<00:08, 196.69it/s]DeepGEMM warmup:  90%|████████▉ | 14673/16384 [00:36<00:08, 196.49it/s]DeepGEMM warmup:  90%|████████▉ | 14693/16384 [00:36<00:08, 196.37it/s]DeepGEMM warmup:  90%|████████▉ | 14713/16384 [00:36<00:08, 196.28it/s]DeepGEMM warmup:  90%|████████▉ | 14733/16384 [00:36<00:08, 195.95it/s]DeepGEMM warmup:  90%|█████████ | 14753/16384 [00:36<00:08, 195.45it/s]DeepGEMM warmup:  90%|█████████ | 14773/16384 [00:37<00:08, 195.10it/s]DeepGEMM warmup:  90%|█████████ | 14793/16384 [00:37<00:08, 194.85it/s]DeepGEMM warmup:  90%|█████████ | 14813/16384 [00:37<00:08, 194.69it/s]DeepGEMM warmup:  91%|█████████ | 14833/16384 [00:37<00:07, 194.56it/s]DeepGEMM warmup:  91%|█████████ | 14853/16384 [00:37<00:07, 194.41it/s]DeepGEMM warmup:  91%|█████████ | 14873/16384 [00:37<00:07, 193.72it/s]DeepGEMM warmup:  91%|█████████ | 14893/16384 [00:37<00:07, 193.25it/s]DeepGEMM warmup:  91%|█████████ | 14913/16384 [00:37<00:07, 192.96it/s]DeepGEMM warmup:  91%|█████████ | 14933/16384 [00:37<00:07, 192.78it/s]DeepGEMM warmup:  91%|█████████▏| 14953/16384 [00:37<00:07, 192.67it/s]DeepGEMM warmup:  91%|█████████▏| 14973/16384 [00:38<00:07, 192.61it/s]DeepGEMM warmup:  92%|█████████▏| 14993/16384 [00:38<00:07, 192.12it/s]DeepGEMM warmup:  92%|█████████▏| 15013/16384 [00:38<00:07, 191.67it/s]DeepGEMM warmup:  92%|█████████▏| 15033/16384 [00:38<00:07, 191.42it/s]DeepGEMM warmup:  92%|█████████▏| 15053/16384 [00:38<00:06, 191.24it/s]DeepGEMM warmup:  92%|█████████▏| 15073/16384 [00:38<00:06, 191.11it/s]DeepGEMM warmup:  92%|█████████▏| 15093/16384 [00:38<00:06, 191.02it/s]DeepGEMM warmup:  92%|█████████▏| 15113/16384 [00:38<00:06, 190.79it/s]DeepGEMM warmup:  92%|█████████▏| 15133/16384 [00:38<00:06, 190.32it/s]DeepGEMM warmup:  92%|█████████▏| 15153/16384 [00:38<00:06, 190.00it/s]DeepGEMM warmup:  93%|█████████▎| 15173/16384 [00:39<00:06, 189.77it/s]DeepGEMM warmup:  93%|█████████▎| 15192/16384 [00:39<00:06, 189.62it/s]DeepGEMM warmup:  93%|█████████▎| 15211/16384 [00:39<00:06, 189.51it/s]DeepGEMM warmup:  93%|█████████▎| 15230/16384 [00:39<00:06, 189.43it/s]DeepGEMM warmup:  93%|█████████▎| 15249/16384 [00:39<00:06, 188.98it/s]DeepGEMM warmup:  93%|█████████▎| 15268/16384 [00:39<00:05, 188.55it/s]DeepGEMM warmup:  93%|█████████▎| 15287/16384 [00:39<00:05, 188.24it/s]DeepGEMM warmup:  93%|█████████▎| 15306/16384 [00:39<00:05, 188.04it/s]DeepGEMM warmup:  94%|█████████▎| 15325/16384 [00:39<00:05, 187.90it/s]DeepGEMM warmup:  94%|█████████▎| 15344/16384 [00:39<00:05, 187.79it/s]DeepGEMM warmup:  94%|█████████▍| 15363/16384 [00:40<00:05, 187.71it/s]DeepGEMM warmup:  94%|█████████▍| 15382/16384 [00:40<00:05, 187.23it/s]DeepGEMM warmup:  94%|█████████▍| 15401/16384 [00:40<00:05, 186.89it/s]DeepGEMM warmup:  94%|█████████▍| 15420/16384 [00:40<00:05, 186.65it/s]DeepGEMM warmup:  94%|█████████▍| 15439/16384 [00:40<00:05, 186.49it/s]DeepGEMM warmup:  94%|█████████▍| 15458/16384 [00:40<00:04, 186.37it/s]DeepGEMM warmup:  94%|█████████▍| 15477/16384 [00:40<00:04, 186.28it/s]DeepGEMM warmup:  95%|█████████▍| 15496/16384 [00:40<00:04, 186.09it/s]DeepGEMM warmup:  95%|█████████▍| 15515/16384 [00:40<00:04, 185.59it/s]DeepGEMM warmup:  95%|█████████▍| 15534/16384 [00:41<00:04, 185.23it/s]DeepGEMM warmup:  95%|█████████▍| 15553/16384 [00:41<00:04, 184.98it/s]DeepGEMM warmup:  95%|█████████▌| 15572/16384 [00:41<00:04, 184.81it/s]DeepGEMM warmup:  95%|█████████▌| 15591/16384 [00:41<00:04, 184.69it/s]DeepGEMM warmup:  95%|█████████▌| 15610/16384 [00:41<00:04, 184.60it/s]DeepGEMM warmup:  95%|█████████▌| 15629/16384 [00:41<00:04, 184.31it/s]DeepGEMM warmup:  96%|█████████▌| 15648/16384 [00:41<00:04, 183.91it/s]DeepGEMM warmup:  96%|█████████▌| 15667/16384 [00:41<00:03, 183.62it/s]DeepGEMM warmup:  96%|█████████▌| 15686/16384 [00:41<00:03, 183.42it/s]DeepGEMM warmup:  96%|█████████▌| 15705/16384 [00:41<00:03, 183.29it/s]DeepGEMM warmup:  96%|█████████▌| 15724/16384 [00:42<00:03, 183.20it/s]DeepGEMM warmup:  96%|█████████▌| 15743/16384 [00:42<00:03, 183.12it/s]DeepGEMM warmup:  96%|█████████▌| 15762/16384 [00:42<00:03, 182.72it/s]DeepGEMM warmup:  96%|█████████▋| 15781/16384 [00:42<00:03, 182.33it/s]DeepGEMM warmup:  96%|█████████▋| 15800/16384 [00:42<00:03, 182.06it/s]DeepGEMM warmup:  97%|█████████▋| 15819/16384 [00:42<00:03, 181.87it/s]DeepGEMM warmup:  97%|█████████▋| 15838/16384 [00:42<00:03, 181.75it/s]DeepGEMM warmup:  97%|█████████▋| 15857/16384 [00:42<00:02, 181.67it/s]DeepGEMM warmup:  97%|█████████▋| 15876/16384 [00:42<00:02, 181.57it/s]DeepGEMM warmup:  97%|█████████▋| 15895/16384 [00:42<00:02, 180.91it/s]DeepGEMM warmup:  97%|█████████▋| 15914/16384 [00:43<00:02, 180.47it/s]DeepGEMM warmup:  97%|█████████▋| 15933/16384 [00:43<00:02, 180.16it/s]DeepGEMM warmup:  97%|█████████▋| 15952/16384 [00:43<00:02, 179.97it/s]DeepGEMM warmup:  97%|█████████▋| 15970/16384 [00:43<00:02, 179.85it/s]DeepGEMM warmup:  98%|█████████▊| 15988/16384 [00:43<00:02, 179.75it/s]DeepGEMM warmup:  98%|█████████▊| 16006/16384 [00:43<00:02, 179.62it/s]DeepGEMM warmup:  98%|█████████▊| 16024/16384 [00:43<00:02, 179.15it/s]DeepGEMM warmup:  98%|█████████▊| 16042/16384 [00:43<00:01, 178.90it/s]DeepGEMM warmup:  98%|█████████▊| 16060/16384 [00:43<00:01, 178.76it/s]DeepGEMM warmup:  98%|█████████▊| 16078/16384 [00:44<00:01, 178.66it/s]DeepGEMM warmup:  98%|█████████▊| 16096/16384 [00:44<00:01, 178.60it/s]DeepGEMM warmup:  98%|█████████▊| 16114/16384 [00:44<00:01, 178.57it/s]DeepGEMM warmup:  98%|█████████▊| 16132/16384 [00:44<00:01, 178.47it/s]DeepGEMM warmup:  99%|█████████▊| 16150/16384 [00:44<00:01, 177.94it/s]DeepGEMM warmup:  99%|█████████▊| 16168/16384 [00:44<00:01, 177.54it/s]DeepGEMM warmup:  99%|█████████▉| 16186/16384 [00:44<00:01, 177.31it/s]DeepGEMM warmup:  99%|█████████▉| 16204/16384 [00:44<00:01, 177.16it/s]DeepGEMM warmup:  99%|█████████▉| 16222/16384 [00:44<00:00, 177.06it/s]DeepGEMM warmup:  99%|█████████▉| 16240/16384 [00:44<00:00, 176.99it/s]DeepGEMM warmup:  99%|█████████▉| 16258/16384 [00:45<00:00, 176.93it/s]DeepGEMM warmup:  99%|█████████▉| 16276/16384 [00:45<00:00, 176.56it/s]DeepGEMM warmup:  99%|█████████▉| 16294/16384 [00:45<00:00, 176.26it/s]DeepGEMM warmup: 100%|█████████▉| 16312/16384 [00:45<00:00, 176.06it/s]DeepGEMM warmup: 100%|█████████▉| 16330/16384 [00:45<00:00, 175.92it/s]DeepGEMM warmup: 100%|█████████▉| 16348/16384 [00:45<00:00, 175.80it/s]DeepGEMM warmup: 100%|█████████▉| 16366/16384 [00:45<00:00, 175.74it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:45<00:00, 175.69it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:45<00:00, 358.10it/s]
+[2026-10-25 05:59:54 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 05:59:54 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=4096, K=1280, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 05:59:54 TP0 EP0] Required memory for warmup: 0.15431594848632812GB, Available memory: 37.15753173828125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:  20%|█▉        | 3215/16384 [00:00<00:00, 32142.83it/s]DeepGEMM warmup:  39%|███▉      | 6430/16384 [00:00<00:00, 19556.83it/s]DeepGEMM warmup:  53%|█████▎    | 8657/16384 [00:00<00:00, 14216.61it/s]DeepGEMM warmup:  63%|██████▎   | 10309/16384 [00:00<00:00, 11551.60it/s]DeepGEMM warmup:  71%|███████   | 11617/16384 [00:00<00:00, 9868.85it/s] DeepGEMM warmup:  77%|███████▋  | 12697/16384 [00:01<00:00, 8680.14it/s]DeepGEMM warmup:  83%|████████▎ | 13618/16384 [00:01<00:00, 7801.06it/s]DeepGEMM warmup:  88%|████████▊ | 14423/16384 [00:01<00:00, 7106.83it/s]DeepGEMM warmup:  92%|█████████▏| 15141/16384 [00:01<00:00, 6547.95it/s]DeepGEMM warmup:  96%|█████████▋| 15793/16384 [00:01<00:00, 6087.49it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:01<00:00, 8907.30it/s]
+[2026-10-25 05:59:56 TP0 EP0] [prewarm] block-fp8 linear prewarm done: warmed 210 module(s), 7 distinct (N,K) shape(s)=[(1152, 5120), (1792, 5120), (4096, 1280), (5120, 576), (5120, 2048), (8192, 1280), (25600, 6144)]
+[2026-10-25 05:59:57 TP0 EP0] MoE vision-gate prewarm: 1 router spec(s) warmed
+[2026-10-25 05:59:57 TP0 EP0] DeepSeek V4 MHC prenorm prewarm: 22 n_splits buckets
+[2026-10-25 06:00:01 TP0 EP0] DeepSeek V4 MHC prewarm at load: compile 3.9s, rank sync +0.0s
+[2026-10-25 06:00:01 TP2 EP1] DeepSeek V4 MHC prewarm at load: compile 4.0s, rank sync +53.9s
+[2026-10-25 06:00:01 TP1 EP0] DeepSeek V4 MHC prewarm at load: compile 4.0s, rank sync +75.0s
+[2026-10-25 06:00:01 TP3 EP1] DeepSeek V4 MHC prewarm at load: compile 4.3s, rank sync +85.0s
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 0 [GPU]
+[2026-10-25 06:00:02 TP3 EP1] Initialized lk_moe with 192 experts for layer 0 [GPU]
+[2026-10-25 06:00:02 TP1 EP0] Initialized lk_moe with 192 experts for layer 0 [GPU]
+[2026-10-25 06:00:02 TP0 EP0] Initialized lk_moe with 192 experts for layer 0 [GPU]
+[2026-10-25 06:00:02 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.0.mlp.experts)...
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 1 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 2 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 3 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 4 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 5 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 6 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 7 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 8 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 9 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 10 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 11 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 12 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 13 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 14 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 15 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 16 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 17 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 18 [GPU]
+[2026-10-25 06:00:02 TP2 EP1] Initialized lk_moe with 192 experts for layer 19 [GPU]
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+Read online CPUs: 192
+Using LK_POWER_SAVING from environment: 1
+Using LK_THREADS from environment: 24
+Using thread binding to NUMA nodes
+Process 1/2 using 24 threads (total across all processes: 48/192 CPUs)
+[2026-10-25 06:00:02 TP3 EP1] Initialized lk_moe with 192 experts for layer 1 [GPU]
+[2026-10-25 06:00:02 TP3 EP1] Initialized lk_moe with 192 experts for layer 2 [GPU]
+[2026-10-25 06:00:02 TP3 EP1] Initialized lk_moe with 192 experts for layer 3 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 4 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 5 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 6 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 7 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 8 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 9 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 10 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 11 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 12 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 13 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 14 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 15 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 16 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 17 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 18 [GPU]
+[2026-10-25 06:00:03 TP3 EP1] Initialized lk_moe with 192 experts for layer 19 [GPU]
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+Read online CPUs: 192
+Using LK_POWER_SAVING from environment: 1
+Using LK_THREADS from environment: 24
+Using thread binding to NUMA nodes
+Process 1/2 using 24 threads (total across all processes: 48/192 CPUs)
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 1 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.1.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 2 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.2.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 3 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.3.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 4 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.4.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 5 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.5.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 6 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.6.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 7 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.7.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 8 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.8.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 9 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.9.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 10 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.10.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 11 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.11.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 12 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.12.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 13 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.13.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 14 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.14.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 15 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.15.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 16 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.16.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 17 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.17.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 18 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.18.mlp.experts)...
+[2026-10-25 06:00:03 TP0 EP0] Initialized lk_moe with 192 experts for layer 19 [GPU]
+[2026-10-25 06:00:03 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: model.layers.19.mlp.experts)...
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+Read online CPUs: 192
+Using LK_POWER_SAVING from environment: 1
+Using LK_THREADS from environment: 24
+Using thread binding to NUMA nodes
+Process 0/2 using 24 threads (total across all processes: 48/192 CPUs)
+Mapping GPU 0 -> 0000:16:00.0
+Mapping GPU 1 -> 0000:17:00.0
+Mapping GPU 2 -> 0000:40:00.0
+Mapping GPU 3 -> 0000:41:00.0
+Mapping GPU 4 -> 0000:96:00.0
+Mapping GPU 5 -> 0000:97:00.0
+Mapping GPU 6 -> 0000:c0:00.0
+Mapping GPU 7 -> 0000:c1:00.0
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+GPU 0 PCI ID: 0000:16:00.0
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+GPU 1 PCI ID: 0000:17:00.0
+EXCLUSIVE: GPU 2 on node 0 gets remote interval 1 [1, 2)
+Backend_NUMA[1] init, thread_id: 0 cpu_id:48 core_id:48[0] node_id:1
+Backend_NUMA[1] init, thread_id: 1 cpu_id:50 core_id:50[0] node_id:1
+Backend_NUMA[1] init, thread_id: 2 cpu_id:52 core_id:52[0] node_id:1
+Backend_NUMA[1] init, thread_id: 3 cpu_id:54 core_id:54[0] node_id:1
+Backend_NUMA[1] init, thread_id: 4 cpu_id:56 core_id:56[0] node_id:1
+Backend_NUMA[1] init, thread_id: 5 cpu_id:58 core_id:58[0] node_id:1
+Backend_NUMA[1] init, thread_id: 6 cpu_id:60 core_id:60[0] node_id:1
+Backend_NUMA[1] init, thread_id: 7 cpu_id:62 core_id:62[0] node_id:1
+Backend_NUMA[1] init, thread_id: 8 cpu_id:64 core_id:64[0] node_id:1
+Backend_NUMA[1] init, thread_id: 9 cpu_id:66 core_id:66[0] node_id:1
+Backend_NUMA[1] init, thread_id: 10 cpu_id:68 core_id:68[0] node_id:1
+Backend_NUMA[1] init, thread_id: 11 cpu_id:70 core_id:70[0] node_id:1
+Backend_NUMA[1] init, thread_id: 12 cpu_id:72 core_id:72[0] node_id:1
+Backend_NUMA[1] init, thread_id: 13 cpu_id:74 core_id:74[0] node_id:1
+Backend_NUMA[1] init, thread_id: 14 cpu_id:76 core_id:76[0] node_id:1
+Backend_NUMA[1] init, thread_id: 15 cpu_id:78 core_id:78[0] node_id:1
+Backend_NUMA[1] init, thread_id: 16 cpu_id:80 core_id:80[0] node_id:1
+Backend_NUMA[1] init, thread_id: 17 cpu_id:82 core_id:82[0] node_id:1
+Backend_NUMA[1] init, thread_id: 18 cpu_id:84 core_id:84[0] node_id:1
+Backend_NUMA[1] init, thread_id: 19 cpu_id:86 core_id:86[0] node_id:1
+Backend_NUMA[1] init, thread_id: 20 cpu_id:88 core_id:88[0] node_id:1
+Backend_NUMA[1] init, thread_id: 21 cpu_id:90 core_id:90[0] node_id:1
+Backend_NUMA[1] init, thread_id: 22 cpu_id:92 core_id:92[0] node_id:1
+Backend_NUMA[1] init, thread_id: 23 cpu_id:94 core_id:94[0] node_id:1
+Backend_NUMA init suscess, numa nodes: 1 cors:96 cpus:192 max_threads: 24
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 1 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 2 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 3 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 4 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 5 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 6 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 7 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 8 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 9 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 10 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 11 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 12 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 13 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 14 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 15 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 16 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 17 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 18 [GPU]
+[2026-10-25 06:00:03 TP1 EP0] Initialized lk_moe with 192 experts for layer 19 [GPU]
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+Read online CPUs: 192
+Using LK_POWER_SAVING from environment: 1
+Using LK_THREADS from environment: 24
+Using thread binding to NUMA nodes
+Process 0/2 using 24 threads (total across all processes: 48/192 CPUs)
+Mapping GPU 0 -> 0000:16:00.0
+Mapping GPU 1 -> 0000:17:00.0
+Mapping GPU 2 -> 0000:40:00.0
+Mapping GPU 3 -> 0000:41:00.0
+Mapping GPU 4 -> 0000:96:00.0
+Mapping GPU 5 -> 0000:97:00.0
+Mapping GPU 6 -> 0000:c0:00.0
+Mapping GPU 7 -> 0000:c1:00.0
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+GPU 0 PCI ID: 0000:16:00.0
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+GPU 1 PCI ID: 0000:17:00.0
+EXCLUSIVE: GPU 3 on node 0 gets remote interval 1 [1, 2)
+Backend_NUMA[1] init, thread_id: 0 cpu_id:48 core_id:48[0] node_id:1
+Backend_NUMA[1] init, thread_id: 1 cpu_id:50 core_id:50[0] node_id:1
+Backend_NUMA[1] init, thread_id: 2 cpu_id:52 core_id:52[0] node_id:1
+Backend_NUMA[1] init, thread_id: 3 cpu_id:54 core_id:54[0] node_id:1
+Backend_NUMA[1] init, thread_id: 4 cpu_id:56 core_id:56[0] node_id:1
+Backend_NUMA[1] init, thread_id: 5 cpu_id:58 core_id:58[0] node_id:1
+Backend_NUMA[1] init, thread_id: 6 cpu_id:60 core_id:60[0] node_id:1
+Backend_NUMA[1] init, thread_id: 7 cpu_id:62 core_id:62[0] node_id:1
+Backend_NUMA[1] init, thread_id: 8 cpu_id:64 core_id:64[0] node_id:1
+Backend_NUMA[1] init, thread_id: 9 cpu_id:66 core_id:66[0] node_id:1
+Backend_NUMA[1] init, thread_id: 10 cpu_id:68 core_id:68[0] node_id:1
+Backend_NUMA[1] init, thread_id: 11 cpu_id:70 core_id:70[0] node_id:1
+Backend_NUMA[1] init, thread_id: 12 cpu_id:72 core_id:72[0] node_id:1
+Backend_NUMA[1] init, thread_id: 13 cpu_id:74 core_id:74[0] node_id:1
+Backend_NUMA[1] init, thread_id: 14 cpu_id:76 core_id:76[0] node_id:1
+Backend_NUMA[1] init, thread_id: 15 cpu_id:78 core_id:78[0] node_id:1
+Backend_NUMA[1] init, thread_id: 16 cpu_id:80 core_id:80[0] node_id:1
+Backend_NUMA[1] init, thread_id: 17 cpu_id:82 core_id:82[0] node_id:1
+Backend_NUMA[1] init, thread_id: 18 cpu_id:84 core_id:84[0] node_id:1
+Backend_NUMA[1] init, thread_id: 19 cpu_id:86 core_id:86[0] node_id:1
+Backend_NUMA[1] init, thread_id: 20 cpu_id:88 core_id:88[0] node_id:1
+Backend_NUMA[1] init, thread_id: 21 cpu_id:90 core_id:90[0] node_id:1
+Backend_NUMA[1] init, thread_id: 22 cpu_id:92 core_id:92[0] node_id:1
+Backend_NUMA[1] init, thread_id: 23 cpu_id:94 core_id:94[0] node_id:1
+Backend_NUMA init suscess, numa nodes: 1 cors:96 cpus:192 max_threads: 24
+Mapping GPU 0 -> 0000:16:00.0
+Mapping GPU 1 -> 0000:17:00.0
+Mapping GPU 2 -> 0000:40:00.0
+Mapping GPU 3 -> 0000:41:00.0
+Mapping GPU 4 -> 0000:96:00.0
+Mapping GPU 5 -> 0000:97:00.0
+Mapping GPU 6 -> 0000:c0:00.0
+Mapping GPU 7 -> 0000:c1:00.0
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+GPU 0 PCI ID: 0000:16:00.0
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+GPU 1 PCI ID: 0000:17:00.0
+EXCLUSIVE: GPU 0 on node 0 gets local interval 0 [0, 1)
+Backend_NUMA[0] init, thread_id: 0 cpu_id:0 core_id:0[0] node_id:0
+Backend_NUMA[0] init, thread_id: 1 cpu_id:2 core_id:2[0] node_id:0
+Backend_NUMA[0] init, thread_id: 2 cpu_id:4 core_id:4[0] node_id:0
+Backend_NUMA[0] init, thread_id: 3 cpu_id:6 core_id:6[0] node_id:0
+Backend_NUMA[0] init, thread_id: 4 cpu_id:8 core_id:8[0] node_id:0
+Backend_NUMA[0] init, thread_id: 5 cpu_id:10 core_id:10[0] node_id:0
+Backend_NUMA[0] init, thread_id: 6 cpu_id:12 core_id:12[0] node_id:0
+Backend_NUMA[0] init, thread_id: 7 cpu_id:14 core_id:14[0] node_id:0
+Backend_NUMA[0] init, thread_id: 8 cpu_id:16 core_id:16[0] node_id:0
+Backend_NUMA[0] init, thread_id: 9 cpu_id:18 core_id:18[0] node_id:0
+Backend_NUMA[0] init, thread_id: 10 cpu_id:20 core_id:20[0] node_id:0
+Backend_NUMA[0] init, thread_id: 11 cpu_id:22 core_id:22[0] node_id:0
+Backend_NUMA[0] init, thread_id: 12 cpu_id:24 core_id:24[0] node_id:0
+Backend_NUMA[0] init, thread_id: 13 cpu_id:26 core_id:26[0] node_id:0
+Backend_NUMA[0] init, thread_id: 14 cpu_id:28 core_id:28[0] node_id:0
+Backend_NUMA[0] init, thread_id: 15 cpu_id:30 core_id:30[0] node_id:0
+Backend_NUMA[0] init, thread_id: 16 cpu_id:32 core_id:32[0] node_id:0
+Backend_NUMA[0] init, thread_id: 17 cpu_id:34 core_id:34[0] node_id:0
+Backend_NUMA[0] init, thread_id: 18 cpu_id:36 core_id:36[0] node_id:0
+Backend_NUMA[0] init, thread_id: 19 cpu_id:38 core_id:38[0] node_id:0
+Backend_NUMA[0] init, thread_id: 20 cpu_id:40 core_id:40[0] node_id:0
+Backend_NUMA[0] init, thread_id: 21 cpu_id:42 core_id:42[0] node_id:0
+Backend_NUMA[0] init, thread_id: 22 cpu_id:44 core_id:44[0] node_id:0
+Backend_NUMA[0] init, thread_id: 23 cpu_id:46 core_id:46[0] node_id:0
+Backend_NUMA init suscess, numa nodes: 1 cors:96 cpus:192 max_threads: 24
+Mapping GPU 0 -> 0000:16:00.0
+Mapping GPU 1 -> 0000:17:00.0
+Mapping GPU 2 -> 0000:40:00.0
+Mapping GPU 3 -> 0000:41:00.0
+Mapping GPU 4 -> 0000:96:00.0
+Mapping GPU 5 -> 0000:97:00.0
+Mapping GPU 6 -> 0000:c0:00.0
+Mapping GPU 7 -> 0000:c1:00.0
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+GPU 0 PCI ID: 0000:16:00.0
+Warning: Unsupported CUDA_VISIBLE_DEVICES format: GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, using virtual ID as fallback
+GPU 1 PCI ID: 0000:17:00.0
+EXCLUSIVE: GPU 1 on node 0 gets local interval 0 [0, 1)
+Backend_NUMA[0] init, thread_id: 0 cpu_id:0 core_id:0[0] node_id:0
+Backend_NUMA[0] init, thread_id: 1 cpu_id:2 core_id:2[0] node_id:0
+Backend_NUMA[0] init, thread_id: 2 cpu_id:4 core_id:4[0] node_id:0
+Backend_NUMA[0] init, thread_id: 3 cpu_id:6 core_id:6[0] node_id:0
+Backend_NUMA[0] init, thread_id: 4 cpu_id:8 core_id:8[0] node_id:0
+Backend_NUMA[0] init, thread_id: 5 cpu_id:10 core_id:10[0] node_id:0
+Backend_NUMA[0] init, thread_id: 6 cpu_id:12 core_id:12[0] node_id:0
+Backend_NUMA[0] init, thread_id: 7 cpu_id:14 core_id:14[0] node_id:0
+Backend_NUMA[0] init, thread_id: 8 cpu_id:16 core_id:16[0] node_id:0
+Backend_NUMA[0] init, thread_id: 9 cpu_id:18 core_id:18[0] node_id:0
+Backend_NUMA[0] init, thread_id: 10 cpu_id:20 core_id:20[0] node_id:0
+Backend_NUMA[0] init, thread_id: 11 cpu_id:22 core_id:22[0] node_id:0
+Backend_NUMA[0] init, thread_id: 12 cpu_id:24 core_id:24[0] node_id:0
+Backend_NUMA[0] init, thread_id: 13 cpu_id:26 core_id:26[0] node_id:0
+Backend_NUMA[0] init, thread_id: 14 cpu_id:28 core_id:28[0] node_id:0
+Backend_NUMA[0] init, thread_id: 15 cpu_id:30 core_id:30[0] node_id:0
+Backend_NUMA[0] init, thread_id: 16 cpu_id:32 core_id:32[0] node_id:0
+Backend_NUMA[0] init, thread_id: 17 cpu_id:34 core_id:34[0] node_id:0
+Backend_NUMA[0] init, thread_id: 18 cpu_id:36 core_id:36[0] node_id:0
+Backend_NUMA[0] init, thread_id: 19 cpu_id:38 core_id:38[0] node_id:0
+Backend_NUMA[0] init, thread_id: 20 cpu_id:40 core_id:40[0] node_id:0
+Backend_NUMA[0] init, thread_id: 21 cpu_id:42 core_id:42[0] node_id:0
+Backend_NUMA[0] init, thread_id: 22 cpu_id:44 core_id:44[0] node_id:0
+Backend_NUMA[0] init, thread_id: 23 cpu_id:46 core_id:46[0] node_id:0
+Backend_NUMA init suscess, numa nodes: 1 cors:96 cpus:192 max_threads: 24
+[pump] ON pool=ON slots=104 window=32 inflight=16 log=100
+[pool] slab: 18.21 GiB (20 layers x 932.34 MiB)
+[2026-10-25 06:00:04 TP2 EP1] Initialized lk_moe with 192 experts for layer 20 [CPU]
+[pump] ON pool=ON slots=104 window=32 inflight=16 log=100
+[pool] slab: 18.21 GiB (20 layers x 932.34 MiB)
+[2026-10-25 06:00:04 TP0 EP0] Initialized lk_moe with 192 experts for layer 20 [CPU]
+[pump] ON pool=ON slots=104 window=32 inflight=16 log=100
+[pool] slab: 18.21 GiB (20 layers x 932.34 MiB)
+[2026-10-25 06:00:04 TP3 EP1] Initialized lk_moe with 192 experts for layer 20 [CPU]
+[pump] ON pool=ON slots=104 window=32 inflight=16 log=100
+[pool] slab: 18.21 GiB (20 layers x 932.34 MiB)
+[2026-10-25 06:00:04 TP1 EP0] Initialized lk_moe with 192 experts for layer 20 [CPU]
+[2026-10-25 06:00:04 TP2 EP1] Initialized lk_moe with 192 experts for layer 21 [CPU]
+[2026-10-25 06:00:04 TP0 EP0] Initialized lk_moe with 192 experts for layer 21 [CPU]
+[2026-10-25 06:00:04 TP3 EP1] Initialized lk_moe with 192 experts for layer 21 [CPU]
+[2026-10-25 06:00:04 TP1 EP0] Initialized lk_moe with 192 experts for layer 21 [CPU]
+[2026-10-25 06:00:05 TP2 EP1] Initialized lk_moe with 192 experts for layer 22 [CPU]
+[2026-10-25 06:00:05 TP0 EP0] Initialized lk_moe with 192 experts for layer 22 [CPU]
+[2026-10-25 06:00:05 TP3 EP1] Initialized lk_moe with 192 experts for layer 22 [CPU]
+[2026-10-25 06:00:05 TP1 EP0] Initialized lk_moe with 192 experts for layer 22 [CPU]
+[2026-10-25 06:00:05 TP0 EP0] Initialized lk_moe with 192 experts for layer 23 [CPU]
+[2026-10-25 06:00:05 TP2 EP1] Initialized lk_moe with 192 experts for layer 23 [CPU]
+[2026-10-25 06:00:05 TP3 EP1] Initialized lk_moe with 192 experts for layer 23 [CPU]
+[2026-10-25 06:00:06 TP1 EP0] Initialized lk_moe with 192 experts for layer 23 [CPU]
+[2026-10-25 06:00:06 TP0 EP0] Initialized lk_moe with 192 experts for layer 24 [CPU]
+[2026-10-25 06:00:06 TP2 EP1] Initialized lk_moe with 192 experts for layer 24 [CPU]
+[2026-10-25 06:00:06 TP3 EP1] Initialized lk_moe with 192 experts for layer 24 [CPU]
+[2026-10-25 06:00:06 TP1 EP0] Initialized lk_moe with 192 experts for layer 24 [CPU]
+[2026-10-25 06:00:06 TP0 EP0] Initialized lk_moe with 192 experts for layer 25 [CPU]
+[2026-10-25 06:00:07 TP2 EP1] Initialized lk_moe with 192 experts for layer 25 [CPU]
+[2026-10-25 06:00:07 TP3 EP1] Initialized lk_moe with 192 experts for layer 25 [CPU]
+[2026-10-25 06:00:07 TP1 EP0] Initialized lk_moe with 192 experts for layer 25 [CPU]
+[2026-10-25 06:00:07 TP0 EP0] Initialized lk_moe with 192 experts for layer 26 [CPU]
+[2026-10-25 06:00:07 TP2 EP1] Initialized lk_moe with 192 experts for layer 26 [CPU]
+[2026-10-25 06:00:07 TP3 EP1] Initialized lk_moe with 192 experts for layer 26 [CPU]
+[2026-10-25 06:00:07 TP1 EP0] Initialized lk_moe with 192 experts for layer 26 [CPU]
+[2026-10-25 06:00:08 TP0 EP0] Initialized lk_moe with 192 experts for layer 27 [CPU]
+[2026-10-25 06:00:08 TP2 EP1] Initialized lk_moe with 192 experts for layer 27 [CPU]
+[2026-10-25 06:00:08 TP3 EP1] Initialized lk_moe with 192 experts for layer 27 [CPU]
+[2026-10-25 06:00:08 TP1 EP0] Initialized lk_moe with 192 experts for layer 27 [CPU]
+[2026-10-25 06:00:08 TP0 EP0] Initialized lk_moe with 192 experts for layer 28 [CPU]
+[2026-10-25 06:00:08 TP2 EP1] Initialized lk_moe with 192 experts for layer 28 [CPU]
+[2026-10-25 06:00:08 TP3 EP1] Initialized lk_moe with 192 experts for layer 28 [CPU]
+[2026-10-25 06:00:08 TP1 EP0] Initialized lk_moe with 192 experts for layer 28 [CPU]
+[2026-10-25 06:00:09 TP0 EP0] Initialized lk_moe with 192 experts for layer 29 [CPU]
+[2026-10-25 06:00:09 TP2 EP1] Initialized lk_moe with 192 experts for layer 29 [CPU]
+[2026-10-25 06:00:09 TP1 EP0] Initialized lk_moe with 192 experts for layer 29 [CPU]
+[2026-10-25 06:00:09 TP3 EP1] Initialized lk_moe with 192 experts for layer 29 [CPU]
+[2026-10-25 06:00:09 TP0 EP0] Initialized lk_moe with 192 experts for layer 30 [CPU]
+[2026-10-25 06:00:09 TP2 EP1] Initialized lk_moe with 192 experts for layer 30 [CPU]
+[2026-10-25 06:00:09 TP1 EP0] Initialized lk_moe with 192 experts for layer 30 [CPU]
+[2026-10-25 06:00:10 TP3 EP1] Initialized lk_moe with 192 experts for layer 30 [CPU]
+[2026-10-25 06:00:10 TP0 EP0] Initialized lk_moe with 192 experts for layer 31 [CPU]
+[2026-10-25 06:00:10 TP2 EP1] Initialized lk_moe with 192 experts for layer 31 [CPU]
+[2026-10-25 06:00:10 TP1 EP0] Initialized lk_moe with 192 experts for layer 31 [CPU]
+[2026-10-25 06:00:10 TP3 EP1] Initialized lk_moe with 192 experts for layer 31 [CPU]
+[2026-10-25 06:00:11 TP0 EP0] Initialized lk_moe with 192 experts for layer 32 [CPU]
+[2026-10-25 06:00:11 TP2 EP1] Initialized lk_moe with 192 experts for layer 32 [CPU]
+[2026-10-25 06:00:11 TP1 EP0] Initialized lk_moe with 192 experts for layer 32 [CPU]
+[2026-10-25 06:00:11 TP3 EP1] Initialized lk_moe with 192 experts for layer 32 [CPU]
+[2026-10-25 06:00:11 TP0 EP0] Initialized lk_moe with 192 experts for layer 33 [CPU]
+[2026-10-25 06:00:11 TP2 EP1] Initialized lk_moe with 192 experts for layer 33 [CPU]
+[2026-10-25 06:00:11 TP1 EP0] Initialized lk_moe with 192 experts for layer 33 [CPU]
+[2026-10-25 06:00:11 TP3 EP1] Initialized lk_moe with 192 experts for layer 33 [CPU]
+[2026-10-25 06:00:12 TP0 EP0] Initialized lk_moe with 192 experts for layer 34 [CPU]
+[2026-10-25 06:00:12 TP2 EP1] Initialized lk_moe with 192 experts for layer 34 [CPU]
+[2026-10-25 06:00:12 TP1 EP0] Initialized lk_moe with 192 experts for layer 34 [CPU]
+[2026-10-25 06:00:12 TP3 EP1] Initialized lk_moe with 192 experts for layer 34 [CPU]
+[2026-10-25 06:00:12 TP0 EP0] Initialized lk_moe with 192 experts for layer 35 [CPU]
+[2026-10-25 06:00:13 TP2 EP1] Initialized lk_moe with 192 experts for layer 35 [CPU]
+[2026-10-25 06:00:13 TP1 EP0] Initialized lk_moe with 192 experts for layer 35 [CPU]
+[2026-10-25 06:00:13 TP3 EP1] Initialized lk_moe with 192 experts for layer 35 [CPU]
+[2026-10-25 06:00:13 TP0 EP0] Initialized lk_moe with 192 experts for layer 36 [CPU]
+[2026-10-25 06:00:13 TP1 EP0] Initialized lk_moe with 192 experts for layer 36 [CPU]
+[2026-10-25 06:00:13 TP2 EP1] Initialized lk_moe with 192 experts for layer 36 [CPU]
+[2026-10-25 06:00:13 TP3 EP1] Initialized lk_moe with 192 experts for layer 36 [CPU]
+[2026-10-25 06:00:13 TP0 EP0] Initialized lk_moe with 192 experts for layer 37 [CPU]
+[2026-10-25 06:00:14 TP1 EP0] Initialized lk_moe with 192 experts for layer 37 [CPU]
+[2026-10-25 06:00:14 TP2 EP1] Initialized lk_moe with 192 experts for layer 37 [CPU]
+[2026-10-25 06:00:14 TP3 EP1] Initialized lk_moe with 192 experts for layer 37 [CPU]
+[2026-10-25 06:00:14 TP0 EP0] Initialized lk_moe with 192 experts for layer 38 [CPU]
+[2026-10-25 06:00:14 TP1 EP0] Initialized lk_moe with 192 experts for layer 38 [CPU]
+[2026-10-25 06:00:15 TP2 EP1] Initialized lk_moe with 192 experts for layer 38 [CPU]
+[2026-10-25 06:00:15 TP3 EP1] Initialized lk_moe with 192 experts for layer 38 [CPU]
+[2026-10-25 06:00:15 TP0 EP0] Initialized lk_moe with 192 experts for layer 39 [CPU]
+[2026-10-25 06:00:15 TP1 EP0] Initialized lk_moe with 192 experts for layer 39 [CPU]
+[2026-10-25 06:00:15 TP0 EP0] DeepSeek prewarm: flashinfer sampling module built in 0.0s
+[2026-10-25 06:00:15 TP0 EP0] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-25 06:00:15 TP0 EP0] Load weight end. elapsed=516.98 s, type=DeepseekV4ForCausalLM, quant=fp8, avail mem=18.76 GB, mem usage=58.64 GB.
+[2026-10-25 06:00:15 TP2 EP1] Initialized lk_moe with 192 experts for layer 39 [CPU]
+[2026-10-25 06:00:15 TP1 EP0] DeepSeek prewarm: flashinfer sampling module built in 0.0s
+[2026-10-25 06:00:15 TP1 EP0] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-25 06:00:15 TP1 EP0] Load weight end. elapsed=517.07 s, type=DeepseekV4ForCausalLM, quant=fp8, avail mem=18.66 GB, mem usage=58.69 GB.
+[2026-10-25 06:00:15 TP3 EP1] Initialized lk_moe with 192 experts for layer 39 [CPU]
+[2026-10-25 06:00:15 TP2 EP1] DeepSeek prewarm: flashinfer sampling module built in 0.0s
+[2026-10-25 06:00:15 TP2 EP1] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-25 06:00:15 TP2 EP1] Load weight end. elapsed=517.27 s, type=DeepseekV4ForCausalLM, quant=fp8, avail mem=18.66 GB, mem usage=58.69 GB.
+[2026-10-25 06:00:15 TP3 EP1] DeepSeek prewarm: flashinfer sampling module built in 0.0s
+[2026-10-25 06:00:15 TP3 EP1] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-25 06:00:15 TP3 EP1] Load weight end. elapsed=517.36 s, type=DeepseekV4ForCausalLM, quant=fp8, avail mem=19.13 GB, mem usage=58.45 GB.
+[2026-10-25 06:00:18 TP1 EP0] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 06:00:18 TP3 EP1] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 06:00:18 TP2 EP1] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 06:00:18 TP0 EP0] Tokenizer for /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 is still TokenizersBackend after retries with --trust-remote-code. Model-specific tokenizer attributes may be missing.
+[2026-10-25 06:00:19 TP0 EP0] Draft checkpoint bundles a DSpark head; loading draft arch DeepseekV4ForCausalLMDSpark.
+[2026-10-25 06:00:19 TP3 EP1] Draft checkpoint bundles a DSpark head; loading draft arch DeepseekV4ForCausalLMDSpark.
+[2026-10-25 06:00:19 TP2 EP1] Draft checkpoint bundles a DSpark head; loading draft arch DeepseekV4ForCausalLMDSpark.
+[2026-10-25 06:00:19 TP1 EP0] Draft checkpoint bundles a DSpark head; loading draft arch DeepseekV4ForCausalLMDSpark.
+[2026-10-25 06:00:19 TP3 EP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 06:00:19 TP0 EP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 06:00:19 TP2 EP1] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 06:00:19 TP3 EP1] Memory baseline taken. mem usage=0.00 GB
+[2026-10-25 06:00:19 TP0 EP0] Memory baseline taken. mem usage=0.00 GB
+[2026-10-25 06:00:19 TP2 EP1] Memory baseline taken. mem usage=0.00 GB
+[2026-10-25 06:00:19 TP3 EP1] Load weight begin. avail mem=19.11 GB
+[2026-10-25 06:00:19 TP0 EP0] Load weight begin. avail mem=18.74 GB
+[2026-10-25 06:00:19 TP2 EP1] Load weight begin. avail mem=18.64 GB
+[2026-10-25 06:00:19 TP0 EP0] Detected fp8 checkpoint.
+[2026-10-25 06:00:19 TP1 EP0] Auto-detected DSV4 routed-expert layout: is_fp4_experts=True
+[2026-10-25 06:00:19 TP1 EP0] Memory baseline taken. mem usage=0.00 GB
+[2026-10-25 06:00:19 TP1 EP0] Load weight begin. avail mem=18.64 GB
+Multi-thread loading shards:   0% Completed | 0/48 [00:00<?, ?it/s]Multi-thread loading shards:   2% Completed | 1/48 [00:01<01:08,  1.45s/it]Multi-thread loading shards:   6% Completed | 3/48 [00:07<01:50,  2.45s/it]Multi-thread loading shards:   8% Completed | 4/48 [00:08<01:35,  2.16s/it]Multi-thread loading shards:  10% Completed | 5/48 [00:10<01:25,  2.00s/it]Multi-thread loading shards:  12% Completed | 6/48 [00:12<01:22,  1.97s/it]Multi-thread loading shards:  15% Completed | 7/48 [00:13<01:13,  1.79s/it]Multi-thread loading shards:  17% Completed | 8/48 [00:15<01:10,  1.77s/it]Multi-thread loading shards:  19% Completed | 9/48 [00:16<01:06,  1.70s/it]Multi-thread loading shards:  21% Completed | 10/48 [00:18<01:06,  1.75s/it]Multi-thread loading shards:  23% Completed | 11/48 [00:20<01:01,  1.67s/it]Multi-thread loading shards:  25% Completed | 12/48 [00:21<01:00,  1.69s/it]Multi-thread loading shards:  27% Completed | 13/48 [00:23<00:58,  1.67s/it]Multi-thread loading shards:  29% Completed | 14/48 [00:25<00:56,  1.66s/it]Multi-thread loading shards:  31% Completed | 15/48 [00:26<00:54,  1.66s/it]Multi-thread loading shards:  33% Completed | 16/48 [00:28<00:52,  1.64s/it]Multi-thread loading shards:  35% Completed | 17/48 [00:30<00:51,  1.65s/it]Multi-thread loading shards:  38% Completed | 18/48 [00:31<00:50,  1.68s/it]Multi-thread loading shards:  40% Completed | 19/48 [00:33<00:49,  1.70s/it]Multi-thread loading shards:  42% Completed | 20/48 [00:35<00:47,  1.71s/it]Multi-thread loading shards:  44% Completed | 21/48 [00:36<00:43,  1.61s/it]Multi-thread loading shards:  46% Completed | 22/48 [00:38<00:40,  1.58s/it]Multi-thread loading shards:  48% Completed | 23/48 [00:39<00:37,  1.52s/it]Multi-thread loading shards:  50% Completed | 24/48 [00:41<00:35,  1.50s/it]Multi-thread loading shards:  52% Completed | 25/48 [00:42<00:34,  1.51s/it]Multi-thread loading shards:  54% Completed | 26/48 [00:44<00:33,  1.52s/it]Multi-thread loading shards:  56% Completed | 27/48 [00:45<00:32,  1.54s/it]Multi-thread loading shards:  58% Completed | 28/48 [00:47<00:30,  1.54s/it]Multi-thread loading shards:  60% Completed | 29/48 [00:48<00:29,  1.55s/it]Multi-thread loading shards:  62% Completed | 30/48 [00:50<00:27,  1.55s/it]Multi-thread loading shards:  65% Completed | 31/48 [00:52<00:26,  1.57s/it]Multi-thread loading shards:  67% Completed | 32/48 [00:53<00:25,  1.60s/it]Multi-thread loading shards:  69% Completed | 33/48 [00:54<00:19,  1.27s/it]Multi-thread loading shards:  71% Completed | 34/48 [00:54<00:14,  1.04s/it]Multi-thread loading shards:  73% Completed | 35/48 [00:55<00:11,  1.10it/s]Multi-thread loading shards:  75% Completed | 36/48 [00:55<00:09,  1.23it/s]Multi-thread loading shards:  77% Completed | 37/48 [00:56<00:08,  1.36it/s]Multi-thread loading shards:  79% Completed | 38/48 [00:56<00:06,  1.50it/s]Multi-thread loading shards:  81% Completed | 39/48 [00:57<00:05,  1.63it/s]Multi-thread loading shards:  83% Completed | 40/48 [00:57<00:04,  1.74it/s]Multi-thread loading shards:  85% Completed | 41/48 [00:58<00:03,  1.82it/s]Multi-thread loading shards:  88% Completed | 42/48 [00:58<00:03,  1.88it/s]Multi-thread loading shards:  92% Completed | 44/48 [01:01<00:03,  1.09it/s]Multi-thread loading shards:  94% Completed | 45/48 [01:04<00:04,  1.33s/it]Multi-thread loading shards:  96% Completed | 46/48 [01:07<00:03,  1.74s/it]Multi-thread loading shards: 100% Completed | 48/48 [01:07<00:00,  1.40s/it]
+[2026-10-25 06:01:26 TP1 EP0] Finished streaming dequant fp8 wo_a
+[2026-10-25 06:01:26 TP3 EP1] Finished streaming dequant fp8 wo_a
+[2026-10-25 06:01:26 TP2 EP1] Finished streaming dequant fp8 wo_a
+[2026-10-25 06:01:26 TP0 EP0] Finished streaming dequant fp8 wo_a
+[2026-10-25 06:01:26 TP1 EP0] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] block=6 M buckets=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96]
+[2026-10-25 06:01:26 TP3 EP1] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] block=6 M buckets=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96]
+[2026-10-25 06:01:26 TP1 EP0] [prewarm] block-fp8 linear prewarm done: warmed 19 module(s), 7 distinct (N,K) shape(s)=[(512, 5120), (1152, 5120), (1280, 5120), (5120, 576), (5120, 2048), (5120, 15360), (8192, 1280)]
+[2026-10-25 06:01:26 TP1 EP0] Initialized lk_moe with 64 experts for layer 0 [GPU]
+[2026-10-25 06:01:26 TP1 EP0] Initialized lk_moe with 64 experts for layer 1 [GPU]
+[2026-10-25 06:01:26 TP1 EP0] Initialized lk_moe with 64 experts for layer 2 [GPU]
+[2026-10-25 06:01:26 TP1 EP0] DeepSeek prewarm: flashinfer sampling module built in 0.0s
+[2026-10-25 06:01:26 TP1 EP0] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-25 06:01:26 TP1 EP0] Load weight end. elapsed=67.51 s, type=DeepseekV4ForCausalLMDSpark, quant=fp8, avail mem=16.57 GB, mem usage=2.07 GB.
+[2026-10-25 06:01:26 TP0 EP0] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] block=6 M buckets=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96]
+[2026-10-25 06:01:26 TP2 EP1] [prewarm] block-fp8 linear prewarm: capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] block=6 M buckets=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96]
+[2026-10-25 06:01:26 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 06:01:26 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=1280, K=5120, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 06:01:26 TP0 EP0] Required memory for warmup: 0.14284610748291016GB, Available memory: 16.70245361328125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s][2026-10-25 06:01:26 TP3 EP1] [prewarm] block-fp8 linear prewarm done: warmed 19 module(s), 7 distinct (N,K) shape(s)=[(512, 5120), (1152, 5120), (1280, 5120), (5120, 576), (5120, 2048), (5120, 15360), (8192, 1280)]
+[2026-10-25 06:01:26 TP3 EP1] Initialized lk_moe with 64 experts for layer 0 [GPU]
+[2026-10-25 06:01:26 TP3 EP1] Initialized lk_moe with 64 experts for layer 1 [GPU]
+[2026-10-25 06:01:26 TP3 EP1] Initialized lk_moe with 64 experts for layer 2 [GPU]
+[2026-10-25 06:01:26 TP3 EP1] DeepSeek prewarm: flashinfer sampling module built in 0.0s
+[2026-10-25 06:01:26 TP3 EP1] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-25 06:01:26 TP3 EP1] Load weight end. elapsed=67.57 s, type=DeepseekV4ForCausalLMDSpark, quant=fp8, avail mem=17.04 GB, mem usage=2.07 GB.
+[2026-10-25 06:01:26 TP2 EP1] [prewarm] block-fp8 linear prewarm done: warmed 19 module(s), 7 distinct (N,K) shape(s)=[(512, 5120), (1152, 5120), (1280, 5120), (5120, 576), (5120, 2048), (5120, 15360), (8192, 1280)]
+[2026-10-25 06:01:26 TP2 EP1] Initialized lk_moe with 64 experts for layer 0 [GPU]
+[2026-10-25 06:01:26 TP2 EP1] Initialized lk_moe with 64 experts for layer 1 [GPU]
+[2026-10-25 06:01:26 TP2 EP1] Initialized lk_moe with 64 experts for layer 2 [GPU]
+[2026-10-25 06:01:26 TP2 EP1] DeepSeek prewarm: flashinfer sampling module built in 0.0s
+[2026-10-25 06:01:26 TP2 EP1] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-25 06:01:26 TP2 EP1] Load weight end. elapsed=67.62 s, type=DeepseekV4ForCausalLMDSpark, quant=fp8, avail mem=16.57 GB, mem usage=2.07 GB.
+DeepGEMM warmup:  13%|█▎        | 2159/16384 [00:00<00:00, 21588.32it/s]DeepGEMM warmup:  26%|██▋       | 4318/16384 [00:00<00:00, 20883.72it/s]DeepGEMM warmup:  39%|███▉      | 6408/16384 [00:00<00:00, 14511.13it/s]DeepGEMM warmup:  49%|████▉     | 8026/16384 [00:00<00:00, 11555.76it/s]DeepGEMM warmup:  57%|█████▋    | 9329/16384 [00:00<00:00, 9840.90it/s] DeepGEMM warmup:  64%|██████▎   | 10418/16384 [00:00<00:00, 8620.49it/s]DeepGEMM warmup:  69%|██████▉   | 11350/16384 [00:01<00:00, 7657.94it/s]DeepGEMM warmup:  74%|███████▍  | 12160/16384 [00:01<00:00, 7005.50it/s]DeepGEMM warmup:  79%|███████▊  | 12885/16384 [00:01<00:00, 6389.78it/s]DeepGEMM warmup:  83%|████████▎ | 13536/16384 [00:01<00:00, 5937.96it/s]DeepGEMM warmup:  86%|████████▋ | 14133/16384 [00:01<00:00, 5567.47it/s]DeepGEMM warmup:  90%|████████▉ | 14688/16384 [00:01<00:00, 5199.15it/s]DeepGEMM warmup:  93%|█████████▎| 15204/16384 [00:01<00:00, 4940.32it/s]DeepGEMM warmup:  96%|█████████▌| 15692/16384 [00:02<00:00, 4733.84it/s]DeepGEMM warmup:  99%|█████████▊| 16159/16384 [00:02<00:00, 4480.26it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:02<00:00, 7318.22it/s]
+[2026-10-25 06:01:29 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 06:01:29 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=512, K=5120, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 06:01:29 TP0 EP0] Required memory for warmup: 0.11573219299316406GB, Available memory: 16.70050048828125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:  13%|█▎        | 2145/16384 [00:00<00:00, 21437.09it/s]DeepGEMM warmup:  27%|██▋       | 4348/16384 [00:00<00:00, 21784.29it/s]DeepGEMM warmup:  40%|████      | 6627/16384 [00:00<00:00, 22240.42it/s]DeepGEMM warmup:  54%|█████▍    | 8852/16384 [00:00<00:00, 20389.16it/s]DeepGEMM warmup:  67%|██████▋   | 10912/16384 [00:00<00:00, 16351.49it/s]DeepGEMM warmup:  77%|███████▋  | 12657/16384 [00:00<00:00, 14535.98it/s]DeepGEMM warmup:  87%|████████▋ | 14199/16384 [00:00<00:00, 12762.74it/s]DeepGEMM warmup:  95%|█████████▍| 15551/16384 [00:01<00:00, 11462.75it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:01<00:00, 14161.35it/s]
+[2026-10-25 06:01:30 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 06:01:30 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=5120, K=15360, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 06:01:30 TP0 EP0] Required memory for warmup: 0.5227470397949219GB, Available memory: 16.70050048828125GB
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s]DeepGEMM warmup:   8%|▊         | 1360/16384 [00:00<00:01, 13595.25it/s]DeepGEMM warmup:  17%|█▋        | 2720/16384 [00:00<00:03, 4472.28it/s] DeepGEMM warmup:  21%|██        | 3459/16384 [00:00<00:04, 3173.63it/s]DeepGEMM warmup:  24%|██▍       | 3950/16384 [00:01<00:04, 2594.90it/s]DeepGEMM warmup:  26%|██▋       | 4311/16384 [00:01<00:05, 2245.36it/s]DeepGEMM warmup:  28%|██▊       | 4594/16384 [00:01<00:05, 1988.80it/s]DeepGEMM warmup:  29%|██▉       | 4825/16384 [00:01<00:06, 1815.65it/s]DeepGEMM warmup:  31%|███       | 5023/16384 [00:02<00:06, 1669.84it/s]DeepGEMM warmup:  32%|███▏      | 5196/16384 [00:02<00:07, 1550.20it/s]DeepGEMM warmup:  33%|███▎      | 5352/16384 [00:02<00:07, 1443.19it/s]DeepGEMM warmup:  34%|███▎      | 5494/16384 [00:02<00:07, 1363.02it/s]DeepGEMM warmup:  34%|███▍      | 5627/16384 [00:02<00:08, 1278.89it/s]DeepGEMM warmup:  35%|███▌      | 5751/16384 [00:02<00:08, 1203.93it/s]DeepGEMM warmup:  36%|███▌      | 5868/16384 [00:02<00:09, 1150.04it/s]DeepGEMM warmup:  36%|███▋      | 5980/16384 [00:02<00:09, 1099.35it/s]DeepGEMM warmup:  37%|███▋      | 6087/16384 [00:03<00:09, 1054.47it/s]DeepGEMM warmup:  38%|███▊      | 6190/16384 [00:03<00:09, 1021.71it/s]DeepGEMM warmup:  38%|███▊      | 6290/16384 [00:03<00:10, 1002.31it/s]DeepGEMM warmup:  39%|███▉      | 6389/16384 [00:03<00:10, 987.91it/s] DeepGEMM warmup:  40%|███▉      | 6487/16384 [00:03<00:10, 961.52it/s]DeepGEMM warmup:  40%|████      | 6583/16384 [00:03<00:10, 940.47it/s]DeepGEMM warmup:  41%|████      | 6677/16384 [00:03<00:10, 924.99it/s]DeepGEMM warmup:  41%|████▏     | 6769/16384 [00:03<00:10, 914.78it/s]DeepGEMM warmup:  42%|████▏     | 6861/16384 [00:03<00:10, 893.60it/s]DeepGEMM warmup:  42%|████▏     | 6951/16384 [00:04<00:10, 875.48it/s]DeepGEMM warmup:  43%|████▎     | 7039/16384 [00:04<00:10, 862.74it/s]DeepGEMM warmup:  43%|████▎     | 7126/16384 [00:04<00:10, 854.31it/s]DeepGEMM warmup:  44%|████▍     | 7212/16384 [00:04<00:10, 841.27it/s]DeepGEMM warmup:  45%|████▍     | 7297/16384 [00:04<00:11, 824.50it/s]DeepGEMM warmup:  45%|████▌     | 7380/16384 [00:04<00:11, 812.62it/s]DeepGEMM warmup:  46%|████▌     | 7462/16384 [00:04<00:11, 804.57it/s]DeepGEMM warmup:  46%|████▌     | 7543/16384 [00:04<00:11, 798.38it/s]DeepGEMM warmup:  47%|████▋     | 7623/16384 [00:04<00:11, 794.43it/s]DeepGEMM warmup:  47%|████▋     | 7703/16384 [00:04<00:11, 788.45it/s]DeepGEMM warmup:  47%|████▋     | 7782/16384 [00:05<00:11, 774.38it/s]DeepGEMM warmup:  48%|████▊     | 7860/16384 [00:05<00:11, 764.64it/s]DeepGEMM warmup:  48%|████▊     | 7937/16384 [00:05<00:11, 757.35it/s]DeepGEMM warmup:  49%|████▉     | 8013/16384 [00:05<00:11, 752.43it/s]DeepGEMM warmup:  49%|████▉     | 8089/16384 [00:05<00:11, 745.76it/s]DeepGEMM warmup:  50%|████▉     | 8164/16384 [00:05<00:11, 732.72it/s]DeepGEMM warmup:  50%|█████     | 8238/16384 [00:05<00:11, 723.45it/s]DeepGEMM warmup:  51%|█████     | 8311/16384 [00:05<00:11, 717.40it/s]DeepGEMM warmup:  51%|█████     | 8383/16384 [00:05<00:11, 713.28it/s]DeepGEMM warmup:  52%|█████▏    | 8455/16384 [00:06<00:11, 709.72it/s]DeepGEMM warmup:  52%|█████▏    | 8526/16384 [00:06<00:11, 697.26it/s]DeepGEMM warmup:  52%|█████▏    | 8596/16384 [00:06<00:11, 688.44it/s]DeepGEMM warmup:  53%|█████▎    | 8665/16384 [00:06<00:11, 682.44it/s]DeepGEMM warmup:  53%|█████▎    | 8734/16384 [00:06<00:11, 677.80it/s]DeepGEMM warmup:  54%|█████▎    | 8802/16384 [00:06<00:11, 674.84it/s]DeepGEMM warmup:  54%|█████▍    | 8870/16384 [00:06<00:11, 672.62it/s]DeepGEMM warmup:  55%|█████▍    | 8938/16384 [00:06<00:11, 671.32it/s]DeepGEMM warmup:  55%|█████▍    | 9006/16384 [00:06<00:11, 664.11it/s]DeepGEMM warmup:  55%|█████▌    | 9073/16384 [00:06<00:11, 655.45it/s]DeepGEMM warmup:  56%|█████▌    | 9139/16384 [00:07<00:11, 649.29it/s]DeepGEMM warmup:  56%|█████▌    | 9204/16384 [00:07<00:11, 645.06it/s]DeepGEMM warmup:  57%|█████▋    | 9269/16384 [00:07<00:11, 642.22it/s]DeepGEMM warmup:  57%|█████▋    | 9334/16384 [00:07<00:11, 640.15it/s]DeepGEMM warmup:  57%|█████▋    | 9399/16384 [00:07<00:11, 631.80it/s]DeepGEMM warmup:  58%|█████▊    | 9463/16384 [00:07<00:11, 624.44it/s]DeepGEMM warmup:  58%|█████▊    | 9526/16384 [00:07<00:11, 618.96it/s]DeepGEMM warmup:  59%|█████▊    | 9588/16384 [00:07<00:11, 615.39it/s]DeepGEMM warmup:  59%|█████▉    | 9650/16384 [00:07<00:10, 612.97it/s]DeepGEMM warmup:  59%|█████▉    | 9712/16384 [00:07<00:10, 611.24it/s]DeepGEMM warmup:  60%|█████▉    | 9774/16384 [00:08<00:10, 604.55it/s]DeepGEMM warmup:  60%|██████    | 9835/16384 [00:08<00:10, 597.54it/s]DeepGEMM warmup:  60%|██████    | 9895/16384 [00:08<00:10, 592.23it/s]DeepGEMM warmup:  61%|██████    | 9955/16384 [00:08<00:10, 588.89it/s]DeepGEMM warmup:  61%|██████    | 10014/16384 [00:08<00:10, 586.11it/s]DeepGEMM warmup:  61%|██████▏   | 10073/16384 [00:08<00:10, 584.50it/s]DeepGEMM warmup:  62%|██████▏   | 10132/16384 [00:08<00:10, 581.29it/s]DeepGEMM warmup:  62%|██████▏   | 10191/16384 [00:08<00:10, 574.05it/s]DeepGEMM warmup:  63%|██████▎   | 10249/16384 [00:08<00:10, 568.79it/s]DeepGEMM warmup:  63%|██████▎   | 10306/16384 [00:09<00:10, 565.21it/s]DeepGEMM warmup:  63%|██████▎   | 10363/16384 [00:09<00:10, 562.44it/s]DeepGEMM warmup:  64%|██████▎   | 10420/16384 [00:09<00:10, 560.78it/s]DeepGEMM warmup:  64%|██████▍   | 10477/16384 [00:09<00:10, 559.64it/s]DeepGEMM warmup:  64%|██████▍   | 10533/16384 [00:09<00:10, 558.79it/s]DeepGEMM warmup:  65%|██████▍   | 10589/16384 [00:09<00:10, 558.15it/s]DeepGEMM warmup:  65%|██████▍   | 10645/16384 [00:09<00:10, 555.59it/s]DeepGEMM warmup:  65%|██████▌   | 10701/16384 [00:09<00:10, 549.23it/s]DeepGEMM warmup:  66%|██████▌   | 10756/16384 [00:09<00:10, 544.78it/s]DeepGEMM warmup:  66%|██████▌   | 10811/16384 [00:09<00:10, 541.58it/s]DeepGEMM warmup:  66%|██████▋   | 10866/16384 [00:10<00:10, 539.28it/s]DeepGEMM warmup:  67%|██████▋   | 10920/16384 [00:10<00:10, 537.76it/s]DeepGEMM warmup:  67%|██████▋   | 10974/16384 [00:10<00:10, 536.86it/s]DeepGEMM warmup:  67%|██████▋   | 11028/16384 [00:10<00:10, 534.26it/s]DeepGEMM warmup:  68%|██████▊   | 11082/16384 [00:10<00:10, 528.26it/s]DeepGEMM warmup:  68%|██████▊   | 11135/16384 [00:10<00:10, 523.93it/s]DeepGEMM warmup:  68%|██████▊   | 11188/16384 [00:10<00:09, 520.90it/s]DeepGEMM warmup:  69%|██████▊   | 11241/16384 [00:10<00:09, 518.96it/s]DeepGEMM warmup:  69%|██████▉   | 11293/16384 [00:10<00:09, 517.58it/s]DeepGEMM warmup:  69%|██████▉   | 11345/16384 [00:10<00:09, 516.54it/s]DeepGEMM warmup:  70%|██████▉   | 11397/16384 [00:11<00:09, 515.61it/s]DeepGEMM warmup:  70%|██████▉   | 11449/16384 [00:11<00:09, 509.32it/s]DeepGEMM warmup:  70%|███████   | 11500/16384 [00:11<00:09, 505.19it/s]DeepGEMM warmup:  71%|███████   | 11551/16384 [00:11<00:09, 502.03it/s]DeepGEMM warmup:  71%|███████   | 11602/16384 [00:11<00:09, 499.97it/s]DeepGEMM warmup:  71%|███████   | 11653/16384 [00:11<00:09, 498.60it/s]DeepGEMM warmup:  71%|███████▏  | 11703/16384 [00:11<00:09, 497.38it/s]DeepGEMM warmup:  72%|███████▏  | 11753/16384 [00:11<00:09, 496.76it/s]DeepGEMM warmup:  72%|███████▏  | 11803/16384 [00:11<00:09, 496.08it/s]DeepGEMM warmup:  72%|███████▏  | 11853/16384 [00:11<00:09, 495.58it/s]DeepGEMM warmup:  73%|███████▎  | 11903/16384 [00:12<00:09, 495.45it/s]DeepGEMM warmup:  73%|███████▎  | 11953/16384 [00:12<00:09, 490.50it/s]DeepGEMM warmup:  73%|███████▎  | 12003/16384 [00:12<00:09, 486.68it/s]DeepGEMM warmup:  74%|███████▎  | 12052/16384 [00:12<00:08, 484.03it/s]DeepGEMM warmup:  74%|███████▍  | 12101/16384 [00:12<00:08, 482.15it/s]DeepGEMM warmup:  74%|███████▍  | 12150/16384 [00:12<00:08, 480.81it/s]DeepGEMM warmup:  74%|███████▍  | 12199/16384 [00:12<00:08, 479.85it/s]DeepGEMM warmup:  75%|███████▍  | 12247/16384 [00:12<00:08, 479.18it/s]DeepGEMM warmup:  75%|███████▌  | 12295/16384 [00:12<00:08, 478.29it/s]DeepGEMM warmup:  75%|███████▌  | 12343/16384 [00:13<00:08, 473.10it/s]DeepGEMM warmup:  76%|███████▌  | 12391/16384 [00:13<00:08, 469.41it/s]DeepGEMM warmup:  76%|███████▌  | 12438/16384 [00:13<00:08, 467.02it/s]DeepGEMM warmup:  76%|███████▌  | 12485/16384 [00:13<00:08, 465.09it/s]DeepGEMM warmup:  76%|███████▋  | 12532/16384 [00:13<00:08, 463.99it/s]DeepGEMM warmup:  77%|███████▋  | 12579/16384 [00:13<00:08, 463.17it/s]DeepGEMM warmup:  77%|███████▋  | 12626/16384 [00:13<00:08, 462.60it/s]DeepGEMM warmup:  77%|███████▋  | 12673/16384 [00:13<00:08, 462.17it/s]DeepGEMM warmup:  78%|███████▊  | 12720/16384 [00:13<00:08, 457.61it/s]DeepGEMM warmup:  78%|███████▊  | 12766/16384 [00:13<00:07, 454.20it/s]DeepGEMM warmup:  78%|███████▊  | 12812/16384 [00:14<00:07, 451.70it/s]DeepGEMM warmup:  78%|███████▊  | 12858/16384 [00:14<00:07, 449.85it/s]DeepGEMM warmup:  79%|███████▉  | 12903/16384 [00:14<00:07, 448.51it/s]DeepGEMM warmup:  79%|███████▉  | 12948/16384 [00:14<00:07, 447.72it/s]DeepGEMM warmup:  79%|███████▉  | 12993/16384 [00:14<00:07, 447.18it/s]DeepGEMM warmup:  80%|███████▉  | 13038/16384 [00:14<00:07, 446.83it/s]DeepGEMM warmup:  80%|███████▉  | 13083/16384 [00:14<00:07, 446.28it/s]DeepGEMM warmup:  80%|████████  | 13128/16384 [00:14<00:07, 446.12it/s]DeepGEMM warmup:  80%|████████  | 13173/16384 [00:14<00:07, 446.00it/s]DeepGEMM warmup:  81%|████████  | 13218/16384 [00:14<00:07, 442.95it/s]DeepGEMM warmup:  81%|████████  | 13263/16384 [00:15<00:07, 439.52it/s]DeepGEMM warmup:  81%|████████  | 13307/16384 [00:15<00:07, 437.02it/s]DeepGEMM warmup:  81%|████████▏ | 13351/16384 [00:15<00:06, 435.29it/s]DeepGEMM warmup:  82%|████████▏ | 13395/16384 [00:15<00:06, 434.21it/s]DeepGEMM warmup:  82%|████████▏ | 13439/16384 [00:15<00:06, 433.44it/s]DeepGEMM warmup:  82%|████████▏ | 13483/16384 [00:15<00:06, 432.92it/s]DeepGEMM warmup:  83%|████████▎ | 13527/16384 [00:15<00:06, 432.50it/s]DeepGEMM warmup:  83%|████████▎ | 13571/16384 [00:15<00:06, 432.16it/s]DeepGEMM warmup:  83%|████████▎ | 13615/16384 [00:15<00:06, 427.94it/s]DeepGEMM warmup:  83%|████████▎ | 13658/16384 [00:15<00:06, 424.74it/s]DeepGEMM warmup:  84%|████████▎ | 13701/16384 [00:16<00:06, 422.73it/s]DeepGEMM warmup:  84%|████████▍ | 13744/16384 [00:16<00:06, 421.03it/s]DeepGEMM warmup:  84%|████████▍ | 13787/16384 [00:16<00:06, 420.17it/s]DeepGEMM warmup:  84%|████████▍ | 13830/16384 [00:16<00:06, 419.55it/s]DeepGEMM warmup:  85%|████████▍ | 13872/16384 [00:16<00:05, 418.95it/s]DeepGEMM warmup:  85%|████████▍ | 13914/16384 [00:16<00:05, 418.66it/s]DeepGEMM warmup:  85%|████████▌ | 13956/16384 [00:16<00:05, 418.36it/s]DeepGEMM warmup:  85%|████████▌ | 13998/16384 [00:16<00:05, 414.58it/s]DeepGEMM warmup:  86%|████████▌ | 14040/16384 [00:16<00:05, 411.57it/s]DeepGEMM warmup:  86%|████████▌ | 14082/16384 [00:16<00:05, 409.83it/s]DeepGEMM warmup:  86%|████████▌ | 14123/16384 [00:17<00:05, 408.16it/s]DeepGEMM warmup:  86%|████████▋ | 14164/16384 [00:17<00:05, 407.34it/s]DeepGEMM warmup:  87%|████████▋ | 14205/16384 [00:17<00:05, 406.85it/s]DeepGEMM warmup:  87%|████████▋ | 14246/16384 [00:17<00:05, 406.06it/s]DeepGEMM warmup:  87%|████████▋ | 14287/16384 [00:17<00:05, 405.90it/s]DeepGEMM warmup:  87%|████████▋ | 14328/16384 [00:17<00:05, 405.76it/s]DeepGEMM warmup:  88%|████████▊ | 14369/16384 [00:17<00:04, 403.17it/s]DeepGEMM warmup:  88%|████████▊ | 14410/16384 [00:17<00:04, 400.39it/s]DeepGEMM warmup:  88%|████████▊ | 14451/16384 [00:17<00:04, 398.25it/s]DeepGEMM warmup:  88%|████████▊ | 14491/16384 [00:18<00:04, 396.88it/s]DeepGEMM warmup:  89%|████████▊ | 14531/16384 [00:18<00:04, 395.63it/s]DeepGEMM warmup:  89%|████████▉ | 14571/16384 [00:18<00:04, 394.95it/s]DeepGEMM warmup:  89%|████████▉ | 14611/16384 [00:18<00:04, 394.31it/s]DeepGEMM warmup:  89%|████████▉ | 14651/16384 [00:18<00:04, 394.09it/s]DeepGEMM warmup:  90%|████████▉ | 14691/16384 [00:18<00:04, 393.96it/s]DeepGEMM warmup:  90%|████████▉ | 14731/16384 [00:18<00:04, 393.86it/s]DeepGEMM warmup:  90%|█████████ | 14771/16384 [00:18<00:04, 393.78it/s]DeepGEMM warmup:  90%|█████████ | 14811/16384 [00:18<00:03, 393.71it/s]DeepGEMM warmup:  91%|█████████ | 14851/16384 [00:18<00:03, 393.66it/s]DeepGEMM warmup:  91%|█████████ | 14891/16384 [00:19<00:03, 390.34it/s]DeepGEMM warmup:  91%|█████████ | 14931/16384 [00:19<00:03, 387.85it/s]DeepGEMM warmup:  91%|█████████▏| 14970/16384 [00:19<00:03, 386.11it/s]DeepGEMM warmup:  92%|█████████▏| 15009/16384 [00:19<00:03, 385.03it/s]DeepGEMM warmup:  92%|█████████▏| 15048/16384 [00:19<00:03, 384.28it/s]DeepGEMM warmup:  92%|█████████▏| 15087/16384 [00:19<00:03, 383.71it/s]DeepGEMM warmup:  92%|█████████▏| 15126/16384 [00:19<00:03, 383.23it/s]DeepGEMM warmup:  93%|█████████▎| 15165/16384 [00:19<00:03, 382.93it/s]DeepGEMM warmup:  93%|█████████▎| 15204/16384 [00:19<00:03, 382.73it/s]DeepGEMM warmup:  93%|█████████▎| 15243/16384 [00:19<00:02, 381.96it/s]DeepGEMM warmup:  93%|█████████▎| 15282/16384 [00:20<00:02, 378.97it/s]DeepGEMM warmup:  94%|█████████▎| 15320/16384 [00:20<00:02, 376.67it/s]DeepGEMM warmup:  94%|█████████▎| 15358/16384 [00:20<00:02, 375.23it/s]DeepGEMM warmup:  94%|█████████▍| 15396/16384 [00:20<00:02, 373.92it/s]DeepGEMM warmup:  94%|█████████▍| 15434/16384 [00:20<00:02, 373.21it/s]DeepGEMM warmup:  94%|█████████▍| 15472/16384 [00:20<00:02, 372.79it/s]DeepGEMM warmup:  95%|█████████▍| 15510/16384 [00:20<00:02, 372.49it/s]DeepGEMM warmup:  95%|█████████▍| 15548/16384 [00:20<00:02, 372.30it/s]DeepGEMM warmup:  95%|█████████▌| 15586/16384 [00:20<00:02, 372.14it/s]DeepGEMM warmup:  95%|█████████▌| 15624/16384 [00:20<00:02, 371.66it/s]DeepGEMM warmup:  96%|█████████▌| 15662/16384 [00:21<00:01, 368.79it/s]DeepGEMM warmup:  96%|█████████▌| 15699/16384 [00:21<00:01, 366.51it/s]DeepGEMM warmup:  96%|█████████▌| 15736/16384 [00:21<00:01, 365.23it/s]DeepGEMM warmup:  96%|█████████▋| 15773/16384 [00:21<00:01, 363.91it/s]DeepGEMM warmup:  96%|█████████▋| 15810/16384 [00:21<00:01, 363.32it/s]DeepGEMM warmup:  97%|█████████▋| 15847/16384 [00:21<00:01, 362.55it/s]DeepGEMM warmup:  97%|█████████▋| 15884/16384 [00:21<00:01, 362.34it/s]DeepGEMM warmup:  97%|█████████▋| 15921/16384 [00:21<00:01, 362.12it/s]DeepGEMM warmup:  97%|█████████▋| 15958/16384 [00:21<00:01, 362.03it/s]DeepGEMM warmup:  98%|█████████▊| 15995/16384 [00:22<00:01, 361.96it/s]DeepGEMM warmup:  98%|█████████▊| 16032/16384 [00:22<00:00, 361.69it/s]DeepGEMM warmup:  98%|█████████▊| 16069/16384 [00:22<00:00, 361.69it/s]DeepGEMM warmup:  98%|█████████▊| 16106/16384 [00:22<00:00, 361.70it/s]DeepGEMM warmup:  99%|█████████▊| 16143/16384 [00:22<00:00, 360.68it/s]DeepGEMM warmup:  99%|█████████▉| 16180/16384 [00:22<00:00, 357.90it/s]DeepGEMM warmup:  99%|█████████▉| 16216/16384 [00:22<00:00, 356.28it/s]DeepGEMM warmup:  99%|█████████▉| 16252/16384 [00:22<00:00, 355.14it/s]DeepGEMM warmup:  99%|█████████▉| 16288/16384 [00:22<00:00, 354.30it/s]DeepGEMM warmup: 100%|█████████▉| 16324/16384 [00:22<00:00, 353.71it/s]DeepGEMM warmup: 100%|█████████▉| 16360/16384 [00:23<00:00, 353.28it/s]DeepGEMM warmup: 100%|██████████| 16384/16384 [00:23<00:00, 709.11it/s]
+[2026-10-25 06:01:55 TP0 EP0] [prewarm] block-fp8 linear prewarm done: warmed 19 module(s), 7 distinct (N,K) shape(s)=[(512, 5120), (1152, 5120), (1280, 5120), (5120, 576), (5120, 2048), (5120, 15360), (8192, 1280)]
+[2026-10-25 06:01:55 TP0 EP0] Initialized lk_moe with 64 experts for layer 0 [GPU]
+[2026-10-25 06:01:55 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: stages.0.mlp.experts)...
+[2026-10-25 06:01:55 TP0 EP0] Initialized lk_moe with 64 experts for layer 1 [GPU]
+[2026-10-25 06:01:55 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: stages.1.mlp.experts)...
+[2026-10-25 06:01:55 TP0 EP0] Initialized lk_moe with 64 experts for layer 2 [GPU]
+[2026-10-25 06:01:55 TP0 EP0] Preparing DSv4 MXFP4 experts for FlashInfer SM90 CUTLASS W4A16 (layer: stages.2.mlp.experts)...
+[2026-10-25 06:01:55 TP0 EP0] DeepSeek prewarm: flashinfer sampling module built in 0.0s
+[2026-10-25 06:01:55 TP0 EP0] Using FP8 KV cache but no scaling factors provided. Defaulting to scaling factors of 1.0.
+[2026-10-25 06:01:55 TP0 EP0] Load weight end. elapsed=95.82 s, type=DeepseekV4ForCausalLMDSpark, quant=fp8, avail mem=16.66 GB, mem usage=2.07 GB.
+[2026-10-25 06:01:55 TP0 EP0] Initialized DSpark draft runner. attention_backend=dsv4, model=DeepseekV4ForCausalLMDSpark, gamma=5, verify_num_draft_tokens=6, query_token_num=5, sample_from_anchor=True, mask_token_id=128799, markov_head=DSparkV4MarkovHead
+[2026-10-25 06:01:55 TP0 EP0] DSpark markov_w2 vocab gather: NcclVocabGather
+[2026-10-25 06:01:55 TP0 EP0] Reserving 0.10 GB of the KV budget for post-sizing multimodal allocations (feature-transport pools + embedding cache).
+[2026-10-25 06:01:55 TP3 EP1] Reserving 0.10 GB of the KV budget for post-sizing multimodal allocations (feature-transport pools + embedding cache).
+[2026-10-25 06:01:55 TP2 EP1] Reserving 0.10 GB of the KV budget for post-sizing multimodal allocations (feature-transport pools + embedding cache).
+[2026-10-25 06:01:55 TP0 EP0] lk_moe static device arena: 18.21 GB already resident (allocated in MOE ctors, excluded from free memory); no additional KV reservation.
+[2026-10-25 06:01:55 TP3 EP1] lk_moe static device arena: 18.21 GB already resident (allocated in MOE ctors, excluded from free memory); no additional KV reservation.
+[2026-10-25 06:01:55 TP2 EP1] lk_moe static device arena: 18.21 GB already resident (allocated in MOE ctors, excluded from free memory); no additional KV reservation.
+[2026-10-25 06:01:55 TP1 EP0] Reserving 0.10 GB of the KV budget for post-sizing multimodal allocations (feature-transport pools + embedding cache).
+[2026-10-25 06:01:55 TP1 EP0] lk_moe static device arena: 18.21 GB already resident (allocated in MOE ctors, excluded from free memory); no additional KV reservation.
+[2026-10-25 06:01:55 TP0 EP0] DSV4 SWA sizing: mode=cap, swa_tokens=59904, request_cap+headroom=59904, prefix_tails=64
+[2026-10-25 06:01:55 TP0 EP0] DSV4 memory calculation: unified=False, unified_fp8=False, dspark_draft_bf16=False, bytes_per_full_token=1670.75, available_bytes=7.19 GB, c128_state_fixed=0.00 GB, c2_state_fixed=0.00 GB, swa_fixed=1.34 GB, swa_ring_fixed=0.00 GB, c4_state_fixed=0.00 GB, full_token=3756544
+[2026-10-25 06:01:55 TP0 EP0] DSV4 pool sizes: full=3756544, swa=59904, c4=939136, c128=29348, c4_state=0, c128_state=0
+[2026-10-25 06:01:55 TP2 EP1] DSV4 SWA sizing: mode=cap, swa_tokens=59904, request_cap+headroom=59904, prefix_tails=64
+[2026-10-25 06:01:55 TP3 EP1] DSV4 SWA sizing: mode=cap, swa_tokens=59904, request_cap+headroom=59904, prefix_tails=64
+[2026-10-25 06:01:55 TP0 EP0] max_total_tokens=4194304 is larger than the profiled value 3756544. Use the profiled value instead.
+[2026-10-25 06:01:55 TP2 EP1] DSV4 memory calculation: unified=False, unified_fp8=False, dspark_draft_bf16=False, bytes_per_full_token=1670.75, available_bytes=7.19 GB, c128_state_fixed=0.00 GB, c2_state_fixed=0.00 GB, swa_fixed=1.34 GB, swa_ring_fixed=0.00 GB, c4_state_fixed=0.00 GB, full_token=3756544
+[2026-10-25 06:01:55 TP3 EP1] DSV4 memory calculation: unified=False, unified_fp8=False, dspark_draft_bf16=False, bytes_per_full_token=1670.75, available_bytes=7.19 GB, c128_state_fixed=0.00 GB, c2_state_fixed=0.00 GB, swa_fixed=1.34 GB, swa_ring_fixed=0.00 GB, c4_state_fixed=0.00 GB, full_token=3756544
+[2026-10-25 06:01:55 TP2 EP1] DSV4 pool sizes: full=3756544, swa=59904, c4=939136, c128=29348, c4_state=0, c128_state=0
+[2026-10-25 06:01:55 TP3 EP1] DSV4 pool sizes: full=3756544, swa=59904, c4=939136, c128=29348, c4_state=0, c128_state=0
+[2026-10-25 06:01:55 TP2 EP1] max_total_tokens=4194304 is larger than the profiled value 3756544. Use the profiled value instead.
+[2026-10-25 06:01:55 TP3 EP1] max_total_tokens=4194304 is larger than the profiled value 3756544. Use the profiled value instead.
+[2026-10-25 06:01:55 TP1 EP0] DSV4 SWA sizing: mode=cap, swa_tokens=59904, request_cap+headroom=59904, prefix_tails=64
+[2026-10-25 06:01:55 TP1 EP0] DSV4 memory calculation: unified=False, unified_fp8=False, dspark_draft_bf16=False, bytes_per_full_token=1670.75, available_bytes=7.19 GB, c128_state_fixed=0.00 GB, c2_state_fixed=0.00 GB, swa_fixed=1.34 GB, swa_ring_fixed=0.00 GB, c4_state_fixed=0.00 GB, full_token=3756544
+[2026-10-25 06:01:55 TP1 EP0] DSV4 pool sizes: full=3756544, swa=59904, c4=939136, c128=29348, c4_state=0, c128_state=0
+[2026-10-25 06:01:55 TP1 EP0] max_total_tokens=4194304 is larger than the profiled value 3756544. Use the profiled value instead.
+[2026-10-25 06:01:55 TP0 EP0] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=16 swa_size=59904 c4_size=939136 c4_logical_size=939136 c128_size=29348 c4_state_pool_size=0 c128_state_pool_size=0 unified=False unified_fp8=False
+[2026-10-25 06:01:55 TP3 EP1] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=16 swa_size=59904 c4_size=939136 c4_logical_size=939136 c128_size=29348 c4_state_pool_size=0 c128_state_pool_size=0 unified=False unified_fp8=False
+[2026-10-25 06:01:55 TP1 EP0] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=16 swa_size=59904 c4_size=939136 c4_logical_size=939136 c128_size=29348 c4_state_pool_size=0 c128_state_pool_size=0 unified=False unified_fp8=False
+[2026-10-25 06:01:55 TP2 EP1] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=16 swa_size=59904 c4_size=939136 c4_logical_size=939136 c128_size=29348 c4_state_pool_size=0 c128_state_pool_size=0 unified=False unified_fp8=False
+[2026-10-25 06:01:55 TP3 EP1] DSV4 SWA storage: worker=target, storage=paged, paged_allocator=True
+[2026-10-25 06:01:55 TP1 EP0] DSV4 SWA storage: worker=target, storage=paged, paged_allocator=True
+[2026-10-25 06:01:55 TP2 EP1] DSV4 SWA storage: worker=target, storage=paged, paged_allocator=True
+[2026-10-25 06:01:55 TP0 EP0] DSV4 SWA storage: worker=target, storage=paged, paged_allocator=True
+[2026-10-25 06:01:55 TP1 EP0] Memory pool end. avail mem=9.46 GB
+[2026-10-25 06:01:55 TP2 EP1] Memory pool end. avail mem=9.46 GB
+[2026-10-25 06:01:55 TP1 EP0] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=16 swa_size=59904 c4_size=0 c4_logical_size=0 c128_size=0 c4_state_pool_size=0 c128_state_pool_size=0 unified=False unified_fp8=False
+[2026-10-25 06:01:55 TP1 EP0] DSV4 SWA storage: worker=draft, storage=paged, paged_allocator=True
+[2026-10-25 06:01:55 TP1 EP0] Memory pool end. avail mem=9.36 GB
+[2026-10-25 06:01:55 TP2 EP1] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=16 swa_size=59904 c4_size=0 c4_logical_size=0 c128_size=0 c4_state_pool_size=0 c128_state_pool_size=0 unified=False unified_fp8=False
+[2026-10-25 06:01:55 TP2 EP1] DSV4 SWA storage: worker=draft, storage=paged, paged_allocator=True
+[2026-10-25 06:01:55 TP2 EP1] Memory pool end. avail mem=9.36 GB
+[2026-10-25 06:01:55 TP3 EP1] Memory pool end. avail mem=9.93 GB
+[2026-10-25 06:01:55 TP0 EP0] Memory pool end. avail mem=9.55 GB
+[2026-10-25 06:01:55 TP3 EP1] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=16 swa_size=59904 c4_size=0 c4_logical_size=0 c128_size=0 c4_state_pool_size=0 c128_state_pool_size=0 unified=False unified_fp8=False
+[2026-10-25 06:01:55 TP3 EP1] DSV4 SWA storage: worker=draft, storage=paged, paged_allocator=True
+[2026-10-25 06:01:55 TP3 EP1] Memory pool end. avail mem=9.83 GB
+[2026-10-25 06:01:55 TP0 EP0] Initialize DeepSeekV4TokenToKVPool with max_num_reqs=16 swa_size=59904 c4_size=0 c4_logical_size=0 c128_size=0 c4_state_pool_size=0 c128_state_pool_size=0 unified=False unified_fp8=False
+[2026-10-25 06:01:55 TP0 EP0] DSV4 SWA storage: worker=draft, storage=paged, paged_allocator=True
+[2026-10-25 06:01:55 TP0 EP0] Memory pool end. avail mem=9.45 GB
+[2026-10-25 06:01:55 TP0 EP0] Using DeepseekV4AttnBackend for dsv4 attention backend (CUDA).
+[2026-10-25 06:01:55 TP2 EP1] Using DeepseekV4AttnBackend for dsv4 attention backend (CUDA).
+[2026-10-25 06:01:55 TP1 EP0] Using DeepseekV4AttnBackend for dsv4 attention backend (CUDA).
+[2026-10-25 06:01:55 TP3 EP1] Using DeepseekV4AttnBackend for dsv4 attention backend (CUDA).
+[2026-10-25 06:01:55 TP0 EP0] Preloaded DSV4.1 FP4 rope-tail kernels k[d128,blk32] q[d128,h32,blk32] c[d512,blk16] at init
+[2026-10-25 06:01:55 TP2 EP1] Preloaded DSV4.1 FP4 rope-tail kernels k[d128,blk32] q[d128,h32,blk32] c[d512,blk16] at init
+[2026-10-25 06:01:55 TP1 EP0] Preloaded DSV4.1 FP4 rope-tail kernels k[d128,blk32] q[d128,h32,blk32] c[d512,blk16] at init
+[2026-10-25 06:01:55 TP3 EP1] Preloaded DSV4.1 FP4 rope-tail kernels k[d128,blk32] q[d128,h32,blk32] c[d512,blk16] at init
+[2026-10-25 06:01:55 TP0 EP0] Prewarmed SWA page-free kernel (page_size=256)
+[2026-10-25 06:01:55 TP2 EP1] Prewarmed SWA page-free kernel (page_size=256)
+[2026-10-25 06:01:55 TP0 EP0] Overriding draft attention backend to dsv4.
+[2026-10-25 06:01:55 TP1 EP0] Prewarmed SWA page-free kernel (page_size=256)
+[2026-10-25 06:01:55 TP2 EP1] Overriding draft attention backend to dsv4.
+[2026-10-25 06:01:55 TP1 EP0] Overriding draft attention backend to dsv4.
+[2026-10-25 06:01:55 TP0 EP0] Using DeepseekV4AttnBackend for dsv4 attention backend (CUDA).
+[2026-10-25 06:01:55 TP2 EP1] Using DeepseekV4AttnBackend for dsv4 attention backend (CUDA).
+[2026-10-25 06:01:55 TP1 EP0] Using DeepseekV4AttnBackend for dsv4 attention backend (CUDA).
+[2026-10-25 06:01:55 TP0 EP0] Prewarmed SWA page-free kernel (page_size=256)
+[2026-10-25 06:01:55 TP2 EP1] Prewarmed SWA page-free kernel (page_size=256)
+[2026-10-25 06:01:55 TP1 EP0] Prewarmed SWA page-free kernel (page_size=256)
+[2026-10-25 06:01:55 TP3 EP1] Prewarmed SWA page-free kernel (page_size=256)
+[2026-10-25 06:01:55 TP3 EP1] Overriding draft attention backend to dsv4.
+[2026-10-25 06:01:55 TP3 EP1] Using DeepseekV4AttnBackend for dsv4 attention backend (CUDA).
+[2026-10-25 06:01:55 TP3 EP1] Prewarmed SWA page-free kernel (page_size=256)
+[2026-10-25 06:01:55 TP0 EP0] [SymmDeviceMemory] Rank: 0, Group size: 4, device_idx: 0, Signal pad offset: 83886080
+[2026-10-25 06:01:55 TP3 EP1] [SymmDeviceMemory] Rank: 3, Group size: 4, device_idx: 3, Signal pad offset: 83886080
+[2026-10-25 06:01:55 TP2 EP1] [SymmDeviceMemory] Rank: 2, Group size: 4, device_idx: 2, Signal pad offset: 83886080
+[2026-10-25 06:01:55 TP1 EP0] [SymmDeviceMemory] Rank: 1, Group size: 4, device_idx: 1, Signal pad offset: 83886080
+[2026-10-25 06:01:55 TP0 EP0] [SymmDeviceMemory] Rank: 0, Group size: 4, device_idx: 0, Signal pad offset: 4096
+[2026-10-25 06:01:55 TP3 EP1] [SymmDeviceMemory] Rank: 3, Group size: 4, device_idx: 3, Signal pad offset: 4096
+[2026-10-25 06:01:55 TP1 EP0] [SymmDeviceMemory] Rank: 1, Group size: 4, device_idx: 1, Signal pad offset: 4096
+[2026-10-25 06:01:55 TP2 EP1] [SymmDeviceMemory] Rank: 2, Group size: 4, device_idx: 2, Signal pad offset: 4096
+[2026-10-25 06:01:55 TP0 EP0] [SymmDeviceMemory] Rank: 0, Group size: 4, device_idx: 0, Signal pad offset: 251658240
+[2026-10-25 06:01:55 TP1 EP0] [SymmDeviceMemory] Rank: 1, Group size: 4, device_idx: 1, Signal pad offset: 251658240
+[2026-10-25 06:01:55 TP2 EP1] [SymmDeviceMemory] Rank: 2, Group size: 4, device_idx: 2, Signal pad offset: 251658240
+[2026-10-25 06:01:55 TP3 EP1] [SymmDeviceMemory] Rank: 3, Group size: 4, device_idx: 3, Signal pad offset: 251658240
+/mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+  return func(*args, **kwargs)
+[2026-10-25 06:01:56 TP0 EP0] FlashInfer AllReduce Fusion enabled and workspace initialized: backend=trtllm, rank=0, world_size=4, max_token_num=2048, hidden_dim=5120
+[2026-10-25 06:01:56 TP1 EP0] FlashInfer AllReduce Fusion enabled and workspace initialized: backend=trtllm, rank=1, world_size=4, max_token_num=2048, hidden_dim=5120
+[2026-10-25 06:01:56 TP2 EP1] FlashInfer AllReduce Fusion enabled and workspace initialized: backend=trtllm, rank=2, world_size=4, max_token_num=2048, hidden_dim=5120
+[2026-10-25 06:01:56 TP3 EP1] FlashInfer AllReduce Fusion enabled and workspace initialized: backend=trtllm, rank=3, world_size=4, max_token_num=2048, hidden_dim=5120
+[2026-10-25 06:01:56 TP0 EP0] [SymmDeviceMemory] Rank: 0, Group size: 4, device_idx: 0, Signal pad offset: 83886080
+[2026-10-25 06:01:56 TP3 EP1] [SymmDeviceMemory] Rank: 3, Group size: 4, device_idx: 3, Signal pad offset: 83886080
+[2026-10-25 06:01:56 TP2 EP1] [SymmDeviceMemory] Rank: 2, Group size: 4, device_idx: 2, Signal pad offset: 83886080
+[2026-10-25 06:01:56 TP1 EP0] [SymmDeviceMemory] Rank: 1, Group size: 4, device_idx: 1, Signal pad offset: 83886080
+[2026-10-25 06:01:56 TP0 EP0] [SymmDeviceMemory] Rank: 0, Group size: 4, device_idx: 0, Signal pad offset: 4096
+[2026-10-25 06:01:56 TP2 EP1] [SymmDeviceMemory] Rank: 2, Group size: 4, device_idx: 2, Signal pad offset: 4096
+[2026-10-25 06:01:56 TP1 EP0] [SymmDeviceMemory] Rank: 1, Group size: 4, device_idx: 1, Signal pad offset: 4096
+[2026-10-25 06:01:56 TP3 EP1] [SymmDeviceMemory] Rank: 3, Group size: 4, device_idx: 3, Signal pad offset: 4096
+[2026-10-25 06:01:56 TP0 EP0] [SymmDeviceMemory] Rank: 0, Group size: 4, device_idx: 0, Signal pad offset: 251658240
+[2026-10-25 06:01:56 TP1 EP0] [SymmDeviceMemory] Rank: 1, Group size: 4, device_idx: 1, Signal pad offset: 251658240
+[2026-10-25 06:01:56 TP2 EP1] [SymmDeviceMemory] Rank: 2, Group size: 4, device_idx: 2, Signal pad offset: 251658240
+[2026-10-25 06:01:56 TP3 EP1] [SymmDeviceMemory] Rank: 3, Group size: 4, device_idx: 3, Signal pad offset: 251658240
+[2026-10-25 06:01:56 TP2 EP1] FlashInfer AllReduce Fusion enabled and workspace initialized: backend=trtllm, rank=2, world_size=4, max_token_num=2048, hidden_dim=5120
+[2026-10-25 06:01:56 TP0 EP0] FlashInfer AllReduce Fusion enabled and workspace initialized: backend=trtllm, rank=0, world_size=4, max_token_num=2048, hidden_dim=5120
+[2026-10-25 06:01:56 TP1 EP0] FlashInfer AllReduce Fusion enabled and workspace initialized: backend=trtllm, rank=1, world_size=4, max_token_num=2048, hidden_dim=5120
+[2026-10-25 06:01:56 TP3 EP1] FlashInfer AllReduce Fusion enabled and workspace initialized: backend=trtllm, rank=3, world_size=4, max_token_num=2048, hidden_dim=5120
+[2026-10-25 06:01:56 TP0 EP0] [attn-prewarm] rank=0/4 runner=EagerRunner is_spec=True block=6 capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] verify_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] get_is_capture_mode=False
+[2026-10-25 06:01:56 TP3 EP1] [attn-prewarm] rank=3/4 runner=EagerRunner is_spec=True block=6 capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] verify_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] get_is_capture_mode=False
+[2026-10-25 06:01:56 TP2 EP1] [attn-prewarm] rank=2/4 runner=EagerRunner is_spec=True block=6 capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] verify_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] get_is_capture_mode=False
+[2026-10-25 06:01:56 TP1 EP0] [attn-prewarm] rank=1/4 runner=EagerRunner is_spec=True block=6 capture_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] verify_bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16] get_is_capture_mode=False
+[2026-10-25 06:01:56 TP2 EP1] [attn-prewarm] rank=2 buffers ok (input_ids=96 seq_lens=16, per_req_tokens=6)
+[2026-10-25 06:01:56 TP1 EP0] [attn-prewarm] rank=1 buffers ok (input_ids=96 seq_lens=16, per_req_tokens=6)
+[2026-10-25 06:01:56 TP0 EP0] [attn-prewarm] rank=0 buffers ok (input_ids=96 seq_lens=16, per_req_tokens=6)
+[2026-10-25 06:01:56 TP3 EP1] [attn-prewarm] rank=3 buffers ok (input_ids=96 seq_lens=16, per_req_tokens=6)
+[TensorRT-LLM][INFO] Set logger level to INFO
+[TensorRT-LLM][INFO] Set logger level to INFO
+[TensorRT-LLM][INFO] Set logger level to INFO
+[TensorRT-LLM][INFO] Set logger level to INFO
+[2026-10-25 06:08:57 TP0 EP0] [attn-prewarm] rank=0 done: 24 dummy forward(s), 12 decode + 12 verify
+[2026-10-25 06:08:57 TP2 EP1] [attn-prewarm] rank=2 done: 24 dummy forward(s), 12 decode + 12 verify
+[2026-10-25 06:08:57 TP1 EP0] [attn-prewarm] rank=1 done: 24 dummy forward(s), 12 decode + 12 verify
+[2026-10-25 06:08:57 TP3 EP1] [attn-prewarm] rank=3 done: 24 dummy forward(s), 12 decode + 12 verify
+[2026-10-25 06:08:57 TP0 EP0] Disable prefill CUDA graph because cuda_graph_config resolved prefill.backend='disabled' (e.g. via --cuda-graph-backend-prefill=disabled or auto-disable rules).
+[2026-10-25 06:08:57 TP2 EP1] Disable prefill CUDA graph because cuda_graph_config resolved prefill.backend='disabled' (e.g. via --cuda-graph-backend-prefill=disabled or auto-disable rules).
+[2026-10-25 06:08:57 TP1 EP0] Disable prefill CUDA graph because cuda_graph_config resolved prefill.backend='disabled' (e.g. via --cuda-graph-backend-prefill=disabled or auto-disable rules).
+[2026-10-25 06:08:57 TP3 EP1] Disable prefill CUDA graph because cuda_graph_config resolved prefill.backend='disabled' (e.g. via --cuda-graph-backend-prefill=disabled or auto-disable rules).
+[2026-10-25 06:08:57 TP0 EP0] Capture target verify CUDA graph begin. backend=full, num_tokens_per_req=6, avail mem=8.50 GB
+[2026-10-25 06:08:57 TP2 EP1] Capture target verify CUDA graph begin. backend=full, num_tokens_per_req=6, avail mem=8.41 GB
+[2026-10-25 06:08:57 TP1 EP0] Capture target verify CUDA graph begin. backend=full, num_tokens_per_req=6, avail mem=8.41 GB
+[2026-10-25 06:08:57 TP0 EP0] Candidate indexer graph limits: [('candidate_unfiltered', 16384)]; use full filtering above 16384.
+[2026-10-25 06:08:57 TP2 EP1] Candidate indexer graph limits: [('candidate_unfiltered', 16384)]; use full filtering above 16384.
+[2026-10-25 06:08:57 TP1 EP0] Candidate indexer graph limits: [('candidate_unfiltered', 16384)]; use full filtering above 16384.
+[2026-10-25 06:08:57 TP3 EP1] Capture target verify CUDA graph begin. backend=full, num_tokens_per_req=6, avail mem=8.88 GB
+[2026-10-25 06:08:57 TP3 EP1] Candidate indexer graph limits: [('candidate_unfiltered', 16384)]; use full filtering above 16384.
+  0%|          | 0/12 [00:00<?, ?it/s]Capturing batches (bs=16 avail_mem=8.44 GB):   0%|          | 0/12 [00:00<?, ?it/s][2026-10-25 06:09:20 TP0 EP0] Entering DeepGEMM JIT Pre-Compile session. It may take a long time (typically 10-20 mins) if you have not run `sglang.compile_deep_gemm`. It is recommended to run `sglang.compile_deep_gemm` with same args as `sglang.launch_server` for pre-compilation to reduce the overhead if you have not run it before. For example: `python3 -m sglang.compile_deep_gemm --model deepseek-ai/DeepSeek-V3 --tp 8 --trust-remote-code`
+[2026-10-25 06:09:20 TP0 EP0] Try DeepGEMM JIT Compiling for <GEMM_NT_F8F8BF16_BLOCK32> N=1536, K=5120, num_groups=1 with all Ms. It only takes a little time (typically 1 sec) if you have run `python3 -m sglang.compile_deep_gemm`. 
+[2026-10-25 06:09:20 TP0 EP0] Required memory for warmup: 0.1518840789794922GB, Available memory: 5.6195068359375GB
+
+DeepGEMM warmup:   0%|          | 0/16384 [00:00<?, ?it/s][A
+DeepGEMM warmup:  14%|█▍        | 2353/16384 [00:00<00:00, 23524.36it/s][A
+DeepGEMM warmup:  29%|██▊       | 4706/16384 [00:00<00:00, 18287.03it/s][A
+DeepGEMM warmup:  40%|████      | 6606/16384 [00:00<00:00, 12735.32it/s][A
+DeepGEMM warmup:  49%|████▉     | 8040/16384 [00:00<00:00, 10225.55it/s][A
+DeepGEMM warmup:  56%|█████▌    | 9186/16384 [00:00<00:00, 8713.82it/s] [A
+DeepGEMM warmup:  62%|██████▏   | 10139/16384 [00:01<00:00, 7621.71it/s][A
+DeepGEMM warmup:  67%|██████▋   | 10952/16384 [00:01<00:00, 6799.52it/s][A
+DeepGEMM warmup:  71%|███████   | 11661/16384 [00:01<00:00, 6221.74it/s][A
+DeepGEMM warmup:  75%|███████▌  | 12296/16384 [00:01<00:00, 5690.02it/s][A
+DeepGEMM warmup:  79%|███████▊  | 12868/16384 [00:01<00:00, 5300.02it/s][A
+DeepGEMM warmup:  82%|████████▏ | 13395/16384 [00:01<00:00, 4969.74it/s][A
+DeepGEMM warmup:  85%|████████▍ | 13886/16384 [00:01<00:00, 4654.83it/s][A
+DeepGEMM warmup:  88%|████████▊ | 14345/16384 [00:02<00:00, 4430.68it/s][A
+DeepGEMM warmup:  90%|█████████ | 14781/16384 [00:02<00:00, 4224.98it/s][A
+DeepGEMM warmup:  93%|█████████▎| 15197/16384 [00:02<00:00, 4022.76it/s][A
+DeepGEMM warmup:  95%|█████████▌| 15593/16384 [00:02<00:00, 3878.29it/s][A
+DeepGEMM warmup:  98%|█████████▊| 15976/16384 [00:02<00:00, 3774.94it/s][A
+DeepGEMM warmup: 100%|█████████▉| 16349/16384 [00:02<00:00, 3621.28it/s][ADeepGEMM warmup: 100%|██████████| 16384/16384 [00:02<00:00, 6331.10it/s]
+Capturing batches (bs=16 avail_mem=8.44 GB):   8%|▊         | 1/12 [00:27<05:01, 27.44s/it]Capturing batches (bs=14 avail_mem=5.09 GB):   8%|▊         | 1/12 [00:27<05:01, 27.44s/it]Capturing batches (bs=14 avail_mem=5.09 GB):  17%|█▋        | 2/12 [00:29<02:07, 12.76s/it]Capturing batches (bs=12 avail_mem=5.08 GB):  17%|█▋        | 2/12 [00:29<02:07, 12.76s/it]Capturing batches (bs=12 avail_mem=5.08 GB):  25%|██▌       | 3/12 [00:32<01:11,  7.99s/it]Capturing batches (bs=10 avail_mem=5.07 GB):  25%|██▌       | 3/12 [00:32<01:11,  7.99s/it]Capturing batches (bs=10 avail_mem=5.07 GB):  33%|███▎      | 4/12 [00:34<00:45,  5.65s/it]Capturing batches (bs=8 avail_mem=5.06 GB):  33%|███▎      | 4/12 [00:34<00:45,  5.65s/it] Capturing batches (bs=8 avail_mem=5.06 GB):  42%|████▏     | 5/12 [00:36<00:29,  4.27s/it]Capturing batches (bs=7 avail_mem=5.05 GB):  42%|████▏     | 5/12 [00:36<00:29,  4.27s/it]Capturing batches (bs=7 avail_mem=5.05 GB):  50%|█████     | 6/12 [00:37<00:20,  3.42s/it]Capturing batches (bs=6 avail_mem=5.03 GB):  50%|█████     | 6/12 [00:37<00:20,  3.42s/it]Capturing batches (bs=6 avail_mem=5.03 GB):  58%|█████▊    | 7/12 [00:39<00:14,  2.84s/it]Capturing batches (bs=5 avail_mem=5.02 GB):  58%|█████▊    | 7/12 [00:39<00:14,  2.84s/it]Capturing batches (bs=5 avail_mem=5.02 GB):  67%|██████▋   | 8/12 [00:41<00:09,  2.42s/it]Capturing batches (bs=4 avail_mem=5.01 GB):  67%|██████▋   | 8/12 [00:41<00:09,  2.42s/it]Capturing batches (bs=4 avail_mem=5.01 GB):  75%|███████▌  | 9/12 [00:42<00:06,  2.17s/it]Capturing batches (bs=3 avail_mem=4.99 GB):  75%|███████▌  | 9/12 [00:42<00:06,  2.17s/it]Capturing batches (bs=3 avail_mem=4.99 GB):  83%|████████▎ | 10/12 [00:44<00:03,  1.94s/it]Capturing batches (bs=2 avail_mem=4.98 GB):  83%|████████▎ | 10/12 [00:44<00:03,  1.94s/it]Capturing batches (bs=2 avail_mem=4.98 GB):  92%|█████████▏| 11/12 [00:45<00:01,  1.81s/it]Capturing batches (bs=1 avail_mem=4.97 GB):  92%|█████████▏| 11/12 [00:45<00:01,  1.81s/it]Capturing batches (bs=1 avail_mem=4.97 GB): 100%|██████████| 12/12 [00:47<00:00,  1.69s/it]Capturing batches (bs=1 avail_mem=4.97 GB): 100%|██████████| 12/12 [00:47<00:00,  3.92s/it]
+[2026-10-25 06:09:45 TP0 EP0] Capture target verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], elapsed=48.17 s, mem usage=3.55 GB, avail mem=4.95 GB.
+[2026-10-25 06:09:46 TP1 EP0] Capture target verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], elapsed=48.25 s, mem usage=0.70 GB, avail mem=7.72 GB.
+[2026-10-25 06:09:46 TP2 EP1] Capture target verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], elapsed=48.27 s, mem usage=0.70 GB, avail mem=7.72 GB.
+[2026-10-25 06:09:46 TP3 EP1] Capture target verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], elapsed=48.27 s, mem usage=0.70 GB, avail mem=8.18 GB.
+[2026-10-25 06:09:46 TP0 EP0] DSpark draft proposal (sampling) folded into the draft cuda graph.
+[2026-10-25 06:09:46 TP0 EP0] Disable prefill CUDA graph because cuda_graph_config resolved prefill.backend='disabled' (e.g. via --cuda-graph-backend-prefill=disabled or auto-disable rules).
+[2026-10-25 06:09:46 TP1 EP0] Disable prefill CUDA graph because cuda_graph_config resolved prefill.backend='disabled' (e.g. via --cuda-graph-backend-prefill=disabled or auto-disable rules).
+[2026-10-25 06:09:46 TP3 EP1] Disable prefill CUDA graph because cuda_graph_config resolved prefill.backend='disabled' (e.g. via --cuda-graph-backend-prefill=disabled or auto-disable rules).
+[2026-10-25 06:09:46 TP2 EP1] Disable prefill CUDA graph because cuda_graph_config resolved prefill.backend='disabled' (e.g. via --cuda-graph-backend-prefill=disabled or auto-disable rules).
+[2026-10-25 06:09:46 TP0 EP0] Capture draft verify CUDA graph begin. backend=full, num_tokens_per_req=5, avail mem=4.95 GB
+[2026-10-25 06:09:46 TP3 EP1] Capture draft verify CUDA graph begin. backend=full, num_tokens_per_req=5, avail mem=8.18 GB
+[2026-10-25 06:09:46 TP1 EP0] Capture draft verify CUDA graph begin. backend=full, num_tokens_per_req=5, avail mem=7.72 GB
+[2026-10-25 06:09:46 TP2 EP1] Capture draft verify CUDA graph begin. backend=full, num_tokens_per_req=5, avail mem=7.72 GB
+  0%|          | 0/12 [00:00<?, ?it/s]Capturing batches (bs=16 avail_mem=4.95 GB):   0%|          | 0/12 [00:00<?, ?it/s]Capturing batches (bs=16 avail_mem=4.95 GB):   8%|▊         | 1/12 [00:00<00:05,  1.90it/s]Capturing batches (bs=14 avail_mem=4.91 GB):   8%|▊         | 1/12 [00:00<00:05,  1.90it/s]Capturing batches (bs=12 avail_mem=4.91 GB):   8%|▊         | 1/12 [00:00<00:05,  1.90it/s]Capturing batches (bs=12 avail_mem=4.91 GB):  25%|██▌       | 3/12 [00:00<00:01,  5.09it/s]Capturing batches (bs=10 avail_mem=4.90 GB):  25%|██▌       | 3/12 [00:00<00:01,  5.09it/s]Capturing batches (bs=8 avail_mem=4.90 GB):  25%|██▌       | 3/12 [00:00<00:01,  5.09it/s] Capturing batches (bs=8 avail_mem=4.90 GB):  42%|████▏     | 5/12 [00:00<00:00,  7.09it/s]Capturing batches (bs=7 avail_mem=4.90 GB):  42%|████▏     | 5/12 [00:00<00:00,  7.09it/s]Capturing batches (bs=6 avail_mem=4.90 GB):  42%|████▏     | 5/12 [00:01<00:00,  7.09it/s]Capturing batches (bs=6 avail_mem=4.90 GB):  58%|█████▊    | 7/12 [00:01<00:00,  7.31it/s]Capturing batches (bs=5 avail_mem=4.90 GB):  58%|█████▊    | 7/12 [00:01<00:00,  7.31it/s]Capturing batches (bs=4 avail_mem=4.89 GB):  58%|█████▊    | 7/12 [00:01<00:00,  7.31it/s]Capturing batches (bs=4 avail_mem=4.89 GB):  75%|███████▌  | 9/12 [00:01<00:00,  8.97it/s]Capturing batches (bs=3 avail_mem=4.89 GB):  75%|███████▌  | 9/12 [00:01<00:00,  8.97it/s]Capturing batches (bs=3 avail_mem=4.89 GB):  75%|███████▌  | 9/12 [00:15<00:00,  8.97it/s]Capturing batches (bs=3 avail_mem=4.89 GB):  83%|████████▎ | 10/12 [00:41<00:17,  8.52s/it]Capturing batches (bs=2 avail_mem=4.89 GB):  83%|████████▎ | 10/12 [00:41<00:17,  8.52s/it]Capturing batches (bs=1 avail_mem=4.89 GB):  83%|████████▎ | 10/12 [00:41<00:17,  8.52s/it]Capturing batches (bs=1 avail_mem=4.89 GB): 100%|██████████| 12/12 [00:41<00:00,  5.33s/it]Capturing batches (bs=1 avail_mem=4.89 GB): 100%|██████████| 12/12 [00:41<00:00,  3.43s/it]
+[2026-10-25 06:10:28 TP0 EP0] Capture draft verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], elapsed=42.27 s, mem usage=0.06 GB, avail mem=4.89 GB.
+[2026-10-25 06:10:28 TP0 EP0] max_total_num_tokens=3756544, chunked_prefill_size=8192, max_prefill_tokens=16384, max_running_requests=16, context_len=1048576, available_gpu_mem=4.89 GB
+[2026-10-25 06:10:28 TP0 EP0] Using the Python TreeCore: this installation contains neither the Rust TreeCore extension nor its sources
+[2026-10-25 06:10:28 TP0 EP0] Init Unified Radix Cache. Components: (<ComponentType.FULL: 0>, <ComponentType.SWA: 1>). Tree Core: UnifiedTreeCore
+[2026-10-25 06:10:28 TP3 EP1] Capture draft verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], elapsed=42.31 s, mem usage=0.06 GB, avail mem=8.13 GB.
+[2026-10-25 06:10:28 TP1 EP0] Capture draft verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], elapsed=42.32 s, mem usage=0.06 GB, avail mem=7.66 GB.
+[2026-10-25 06:10:28 TP3 EP1] Using the Python TreeCore: this installation contains neither the Rust TreeCore extension nor its sources
+[2026-10-25 06:10:28 TP3 EP1] Init Unified Radix Cache. Components: (<ComponentType.FULL: 0>, <ComponentType.SWA: 1>). Tree Core: UnifiedTreeCore
+[2026-10-25 06:10:28 TP1 EP0] Using the Python TreeCore: this installation contains neither the Rust TreeCore extension nor its sources
+[2026-10-25 06:10:28 TP1 EP0] Init Unified Radix Cache. Components: (<ComponentType.FULL: 0>, <ComponentType.SWA: 1>). Tree Core: UnifiedTreeCore
+[2026-10-25 06:10:28 TP2 EP1] Capture draft verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16], elapsed=42.32 s, mem usage=0.06 GB, avail mem=7.66 GB.
+[2026-10-25 06:10:28 TP2 EP1] Using the Python TreeCore: this installation contains neither the Rust TreeCore extension nor its sources
+[2026-10-25 06:10:28 TP2 EP1] Init Unified Radix Cache. Components: (<ComponentType.FULL: 0>, <ComponentType.SWA: 1>). Tree Core: UnifiedTreeCore
+[2026-10-25 06:10:32 TP0 EP0] Allocating 9.04 GB host memory for V4 paged pool 'swa' (layers=43, pages=1404, item_bytes=149760, layout=page_first).
+[2026-10-25 06:10:33 TP3 EP1] Allocating 9.04 GB host memory for V4 paged pool 'swa' (layers=43, pages=1404, item_bytes=149760, layout=page_first).
+[2026-10-25 06:10:34 TP2 EP1] Allocating 9.04 GB host memory for V4 paged pool 'swa' (layers=43, pages=1404, item_bytes=149760, layout=page_first).
+[2026-10-25 06:10:34 TP1 EP0] Allocating 9.04 GB host memory for V4 paged pool 'swa' (layers=43, pages=1404, item_bytes=149760, layout=page_first).
+[2026-10-25 06:10:49 TP0 EP0] Allocating 13.19 GB host memory for V4 paged pool 'deepseek_v4_c1' (layers=1, pages=88044, item_bytes=149760, layout=page_first).
+[2026-10-25 06:10:50 TP0 EP0] Allocating 1.53 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layers=1, pages=88044, item_bytes=17408, layout=page_first).
+[2026-10-25 06:10:58 TP3 EP1] Allocating 13.19 GB host memory for V4 paged pool 'deepseek_v4_c1' (layers=1, pages=88044, item_bytes=149760, layout=page_first).
+[2026-10-25 06:10:59 TP3 EP1] Allocating 1.53 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layers=1, pages=88044, item_bytes=17408, layout=page_first).
+[2026-10-25 06:11:07 TP2 EP1] Allocating 13.19 GB host memory for V4 paged pool 'deepseek_v4_c1' (layers=1, pages=88044, item_bytes=149760, layout=page_first).
+[2026-10-25 06:11:08 TP2 EP1] Allocating 1.53 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layers=1, pages=88044, item_bytes=17408, layout=page_first).
+[2026-10-25 06:11:09 TP0 EP0] Allocating 19.78 GB host memory for V4 paged pool 'deepseek_v4_c2' (layers=3, pages=88044, item_bytes=74880, layout=page_first).
+[2026-10-25 06:11:15 TP1 EP0] Allocating 13.19 GB host memory for V4 paged pool 'deepseek_v4_c1' (layers=1, pages=88044, item_bytes=149760, layout=page_first).
+[2026-10-25 06:11:16 TP1 EP0] Allocating 1.53 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layers=1, pages=88044, item_bytes=17408, layout=page_first).
+[2026-10-25 06:11:19 TP3 EP1] Allocating 19.78 GB host memory for V4 paged pool 'deepseek_v4_c2' (layers=3, pages=88044, item_bytes=74880, layout=page_first).
+[2026-10-25 06:11:19 TP0 EP0] Allocating 2.30 GB host memory for V4 paged pool 'deepseek_v4_c2_indexer' (layers=3, pages=88044, item_bytes=8704, layout=page_first).
+[2026-10-25 06:11:28 TP0 EP0] Attached hybrid pool stack to UnifiedRadixCache: pools=KV + SWA + DeepSeekV4 sidecars, transfer_layer_id_max=40
+[2026-10-25 06:11:28 TP0 EP0] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=True hybrid_ssm=False hicache_attached=True
+[2026-10-25 06:11:29 TP2 EP1] Allocating 19.78 GB host memory for V4 paged pool 'deepseek_v4_c2' (layers=3, pages=88044, item_bytes=74880, layout=page_first).
+[2026-10-25 06:11:30 TP3 EP1] Allocating 2.30 GB host memory for V4 paged pool 'deepseek_v4_c2_indexer' (layers=3, pages=88044, item_bytes=8704, layout=page_first).
+[2026-10-25 06:11:38 TP1 EP0] Allocating 19.78 GB host memory for V4 paged pool 'deepseek_v4_c2' (layers=3, pages=88044, item_bytes=74880, layout=page_first).
+[2026-10-25 06:11:39 TP2 EP1] Allocating 2.30 GB host memory for V4 paged pool 'deepseek_v4_c2_indexer' (layers=3, pages=88044, item_bytes=8704, layout=page_first).
+[2026-10-25 06:11:39 TP3 EP1] Attached hybrid pool stack to UnifiedRadixCache: pools=KV + SWA + DeepSeekV4 sidecars, transfer_layer_id_max=40
+[2026-10-25 06:11:39 TP3 EP1] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=True hybrid_ssm=False hicache_attached=True
+[2026-10-25 06:11:49 TP2 EP1] Attached hybrid pool stack to UnifiedRadixCache: pools=KV + SWA + DeepSeekV4 sidecars, transfer_layer_id_max=40
+[2026-10-25 06:11:49 TP2 EP1] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=True hybrid_ssm=False hicache_attached=True
+[2026-10-25 06:11:49 TP1 EP0] Allocating 2.30 GB host memory for V4 paged pool 'deepseek_v4_c2_indexer' (layers=3, pages=88044, item_bytes=8704, layout=page_first).
+[2026-10-25 06:11:59 TP1 EP0] Attached hybrid pool stack to UnifiedRadixCache: pools=KV + SWA + DeepSeekV4 sidecars, transfer_layer_id_max=40
+[2026-10-25 06:11:59 TP1 EP0] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=True hybrid_ssm=False hicache_attached=True
+[2026-10-25 06:11:59] Engine startup timings (s): load_weight=612.80, kv_cache_allocation=0.78, scheduler_e2e=1230.28, cuda_graph={prefill=0.00, decode=0.00, target_verify=48.27, draft_prefill=0.00, draft_decode=42.32, draft_extend=0.00}, tokenizer_e2e=1251.97
+[2026-10-25 06:12:00] INFO:     Started server process [16582]
+[2026-10-25 06:12:00] INFO:     Waiting for application startup.
+[2026-10-25 06:12:00] INFO:     Application startup complete.
+[2026-10-25 06:12:00] INFO:     Uvicorn running on http://0.0.0.0:18010 (Press CTRL+C to quit)
+[2026-10-25 06:12:00] INFO:     127.0.0.1:52618 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-10-25 06:12:01] INFO:     127.0.0.1:52620 - "GET /model_info HTTP/1.1" 200 OK
+[2026-10-25 06:12:05] INFO:     127.0.0.1:52640 - "GET /health HTTP/1.1" 503 Service Unavailable
+[2026-10-25 06:12:06 TP0 EP0] Prefill batch, #new-seq: 1, #new-token: 193, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 5.15
+[2026-10-25 06:12:06] INFO:     127.0.0.1:52636 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+[2026-10-25 06:12:06] INFO:     127.0.0.1:52644 - "POST /freeze_gc HTTP/1.1" 200 OK
+[2026-10-25 06:12:06] The server is fired up and ready to roll!
+[2026-10-25 06:12:10 TP0 EP0] Prefill batch, #new-seq: 1, #new-token: 1, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 0.21
+[2026-10-25 06:12:11] INFO:     127.0.0.1:57298 - "GET /health HTTP/1.1" 200 OK
+[2026-10-25 06:23:15] SIGTERM received. signum=None frame=None. Draining requests and shutting down...
+[2026-10-25 06:23:16] Subprocess detokenizer (pid=27043) crashed with exit code -15. Triggering SIGQUIT for cleanup...
+[2026-10-25 06:23:16] SIGQUIT received. signum=None, frame=None. It usually means one child failed.
+[2026-10-25 06:23:16] Sleeping 5 seconds before crash diagnostics to let GPU activity settle.
+[2026-10-25 06:23:21] No live scheduler processes found; skipping py-spy and CUDA coredump.
+[2026-10-25 06:23:21] kill_process_tree called: parent_pid=16582, include_parent=True, pid=16582

@@ -1,0 +1,56 @@
+{
+  "tag": "branch_e378da4b",
+  "log": "/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261025_052223.log",
+  "prefill": {
+    "new=328,cached=5888": {
+      "n": 38,
+      "median": 305.76,
+      "p10": 260.89,
+      "p90": 324.04
+    },
+    "new=1,cached=0": {
+      "n": 2,
+      "median": 0.12,
+      "p10": 0.07,
+      "p90": 0.18
+    },
+    "new=6216,cached=0": {
+      "n": 2,
+      "median": 2456.53,
+      "p10": 286.17,
+      "p90": 4626.88
+    }
+  },
+  "accept": {
+    "n": 17,
+    "len_median": 3.48,
+    "len_min": 2.02,
+    "len_max": 4.38,
+    "rate_median": 0.49
+  },
+  "pool": {
+    "link": "393.43GB/s",
+    "copyiss": "62.8us",
+    "psl": "0.10",
+    "que": "1",
+    "hit": "93.0",
+    "resident": "2080",
+    "stalls": "174",
+    "sk": "9260",
+    "lines": 32
+  },
+  "numa": {
+    "backends": [
+      0,
+      1
+    ],
+    "cpu_ids": 48,
+    "cpu_id_bind_hist": {
+      "2x": 48
+    },
+    "dup_across_backends": 0
+  },
+  "fence_warn_count": 0,
+  "crash_lines": [],
+  "n_lines": 2024
+}

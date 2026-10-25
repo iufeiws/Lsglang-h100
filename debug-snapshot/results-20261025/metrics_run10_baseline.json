@@ -1,0 +1,68 @@
+{
+  "tag": "run10_baseline",
+  "log": "/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261024_233544.log",
+  "prefill": {
+    "new=328,cached=5888": {
+      "n": 70,
+      "median": 250.93,
+      "p10": 213.56,
+      "p90": 255.52
+    },
+    "new=281,cached=0": {
+      "n": 20,
+      "median": 209.68,
+      "p10": 205.51,
+      "p90": 213.75
+    },
+    "new=271,cached=0": {
+      "n": 10,
+      "median": 195.27,
+      "p10": 193.81,
+      "p90": 200.16
+    },
+    "new=1,cached=0": {
+      "n": 2,
+      "median": 0.13,
+      "p10": 0.0,
+      "p90": 0.26
+    },
+    "new=6216,cached=0": {
+      "n": 2,
+      "median": 1781.45,
+      "p10": 60.35,
+      "p90": 3502.55
+    }
+  },
+  "accept": {
+    "n": 28,
+    "len_median": 4.03,
+    "len_min": 1.85,
+    "len_max": 5.3,
+    "rate_median": 0.6
+  },
+  "pool": {
+    "link": "45.79GB/s",
+    "copyiss": "74.5us",
+    "psl": "0.04",
+    "que": "1",
+    "hit": "97.1",
+    "resident": "2080",
+    "stalls": "176",
+    "sk": "16671",
+    "lines": 48
+  },
+  "numa": {
+    "backends": [
+      0,
+      1
+    ],
+    "cpu_ids": 48,
+    "cpu_id_bind_hist": {
+      "2x": 48
+    },
+    "dup_across_backends": 0
+  },
+  "fence_warn_count": 0,
+  "crash_lines": [],
+  "n_lines": 2192
+}

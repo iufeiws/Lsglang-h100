@@ -1,0 +1,3 @@
+finish_reason: tool_calls
+tool_calls: [{"id": "call_a1bee09f5a1541878c513ca8", "index": 0, "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"北京\"}"}}]
+usage: {'prompt_tokens': 271, 'total_tokens': 310, 'completion_tokens': 39, 'prompt_tokens_details': None, 'reasoning_tokens': 0}

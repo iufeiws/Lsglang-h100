@@ -1,0 +1,28 @@
+=== deploy 1cf916ebc0 -> site-packages   20261025_163202 ===
+repo: /mnt/SSD01/models/.llm-env/Lsglang-h100
+sp  : /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/sglang
+
+FILE                                                       REPO_MD5_BEFORE                    DEPLOY_MD5_BEFORE                  COPY_VERDICT
+  pycache cleared: kernels/ops/moe/lk_verify_uva.py -> __pycache__/lk_verify_uva.*.pyc
+  pycache cleared: srt/layers/moe/fused_moe_triton/layer.py -> __pycache__/layer.*.pyc
+  pycache cleared: srt/layers/moe/gpu_expert_cache.py -> __pycache__/gpu_expert_cache.*.pyc
+  pycache cleared: srt/model_executor/runner_backend/full_cuda_graph_backend.py -> __pycache__/full_cuda_graph_backend.*.pyc
+  pycache cleared: srt/utils/lk_moe_env.py -> __pycache__/lk_moe_env.*.pyc
+
+=== verify: deployed copy == repo version (byte-for-byte) ===
+FILE                                                       DEPLOYED_MD5                       REPO_MD5                           MATCH
+kernels/ops/moe/lk_verify_uva.py                           de652c16a0311f988d1ab0b826e0cdec   de652c16a0311f988d1ab0b826e0cdec   OK
+srt/layers/moe/fused_moe_triton/layer.py                   9ae6df7d3c28fe5621de9a4af9a09246   9ae6df7d3c28fe5621de9a4af9a09246   OK
+srt/layers/moe/gpu_expert_cache.py                         272c13a06e85e3eb1299b56acb9533a0   272c13a06e85e3eb1299b56acb9533a0   OK
+srt/model_executor/runner_backend/full_cuda_graph_backend.py d2cc8403b5ba14c2e35e1ff61cd3dc9a   d2cc8403b5ba14c2e35e1ff61cd3dc9a   OK
+srt/utils/lk_moe_env.py                                    45d7471ea148c5bfe17257ff79acc4d8   45d7471ea148c5bfe17257ff79acc4d8   OK
+
+=== no stale .pyc left for the 5 modules ===
+  clean: lk_verify_uva
+  clean: layer
+  clean: gpu_expert_cache
+  clean: full_cuda_graph_backend
+  clean: lk_moe_env
+
+DEPLOY VERDICT: ALL OK
+log: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results/deploy_md5_1cf916ebc0_20261025_163202.txt

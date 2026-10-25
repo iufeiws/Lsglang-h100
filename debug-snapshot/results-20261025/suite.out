@@ -1,0 +1,60 @@
+### 2026-10-25_17:15:38 单流 bench k=1 mt=1000 temp=0.7
+  },
+  "total_tok_s": {
+    "p50": 19.267610715144368,
+    "p10": 19.267610715144368,
+    "p90": 19.267610715144368,
+    "mean": 19.267610715144368,
+    "n": 1
+  },
+  "sum_completion_tokens": 1000,
+  "note": "decode tok/s 用 usage.completion_tokens 计; SSE 事件计数见 events 列 (会低估 accept-len 倍)",
+  "overlap_window": {
+    "window_s": 51.008392333984375,
+    "tokens": 999.0,
+    "agg_tok_s": 19.585012471259862
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_gpucache/bench_gpucache_single_20261025_171538.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_gpucache/bench_gpucache_single_20261025_171538.csv",
+  "vram_max_mib": {
+    "gpu4": 74330,
+    "gpu5": 74426,
+    "gpu6": 74426,
+    "gpu7": 73946
+  }
+}
+[2026-10-25T17:16:30+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_gpucache/bench_gpucache_single_20261025_171538.json
+### 2026-10-25_17:16:30 复述 recall_margin n=50 (贪心+logprob)
+   25: OK   1.80s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   26: OK   1.87s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   27: OK   1.81s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   28: OK   1.80s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   29: OK   1.80s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   30: OK   1.80s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   31: OK   1.85s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   32: OK   1.74s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   33: OK   1.77s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   34: OK   1.87s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   35: OK   1.86s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   36: OK   1.84s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   37: OK   1.73s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   38: OK   1.84s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   39: OK   1.78s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   40: OK   1.77s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   41: OK   1.77s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   42: OK   1.75s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   43: OK   1.70s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   44: OK   1.77s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   45: OK   1.67s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   46: OK   1.87s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   47: OK   1.79s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   48: OK   1.78s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   49: OK   1.75s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   50: OK   1.84s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+
+不同输出种类: 1  多数输出 x50  错误率(不含 expect): 0/50
+
+落盘: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_gpucache/recall_margin_gpucache_20261025_171630.jsonl
+### 2026-10-25_17:18:01 工具调用 1 次
+finish: tool_calls | tool_calls: [{"id": "call_241aecec76cc43afb754a7e9", "index": 0, "type": "function", "function": {"name": "get_weather", "arguments" | usage: {'prompt_tokens': 271, 'total_tokens': 310, 'completion_tokens': 39, 'prompt_tokens_details': None, 'reasoning_tokens': 0}
+### 2026-10-25_17:18:03 完成
