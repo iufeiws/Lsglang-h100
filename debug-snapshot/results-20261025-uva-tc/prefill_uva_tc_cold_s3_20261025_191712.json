@@ -1,0 +1,24 @@
+{
+ "tag": "uva_tc_cold_s3",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16691,
+ "runs": [
+  {
+   "case": "long",
+   "salt": 3,
+   "wall_s": 1.661475658416748,
+   "prompt_tokens": 16695,
+   "tok_s": 10048.2964739363,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "salt": 3,
+   "wall_s": 0.32268691062927246,
+   "prompt_tokens": 13,
+   "tok_s": 40.28672862697985,
+   "completion_tokens": 1
+  }
+ ]
+}

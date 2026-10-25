@@ -1,0 +1,22 @@
+{
+ "tag": "uva_tc_idle",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16684,
+ "runs": [
+  {
+   "case": "long",
+   "wall_s": 1.206573247909546,
+   "prompt_tokens": 16688,
+   "tok_s": 13830.905027036586,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "wall_s": 0.5326275825500488,
+   "prompt_tokens": 13,
+   "tok_s": 24.407297755328777,
+   "completion_tokens": 1
+  }
+ ]
+}

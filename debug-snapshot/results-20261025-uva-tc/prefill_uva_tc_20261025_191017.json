@@ -1,0 +1,22 @@
+{
+ "tag": "uva_tc",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16684,
+ "runs": [
+  {
+   "case": "long",
+   "wall_s": 3.1987016201019287,
+   "prompt_tokens": 16688,
+   "tok_s": 5217.1168123734615,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "wall_s": 0.43976855278015137,
+   "prompt_tokens": 13,
+   "tok_s": 29.561004118680007,
+   "completion_tokens": 1
+  }
+ ]
+}
