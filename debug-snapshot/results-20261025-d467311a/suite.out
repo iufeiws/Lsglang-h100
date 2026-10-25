@@ -1,0 +1,83 @@
+### 2026-10-25_20:36:43 1/5 纯 prefill (单 prompt ~17k token, max_tokens=1; 服务空闲)
+[transformers] You are using a model of type `deepseek_v41` to instantiate a model of type ``. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+ long: prompt_tokens=16688 wall=3.498s prefill=4770.1 tok/s
+short: prompt_tokens=13 wall=0.695s prefill=18.7 tok/s
+json: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/prefill_d467311a_20261025_203702.json
+### 2026-10-25_20:37:02 2/5 单流 bench k=1 mt=1000 temp=0.7
+    "p10": 69.70484762409866,
+    "p90": 69.70484762409866,
+    "mean": 69.70484762409866,
+    "n": 1
+  },
+  "sum_completion_tokens": 1000,
+  "note": "decode tok/s 用 usage.completion_tokens 计; SSE 事件计数见 events 列 (会低估 accept-len 倍)",
+  "overlap_window": {
+    "window_s": 13.57487177848816,
+    "tokens": 999.0,
+    "agg_tok_s": 73.59185532662609
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/bench_d467311a_single_20261025_203703.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/bench_d467311a_single_20261025_203703.csv",
+  "vram_max_mib": {
+    "gpu4": 78040,
+    "gpu5": 78134,
+    "gpu6": 78134,
+    "gpu7": 77774
+  }
+}
+[2026-10-25T20:37:17+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/bench_d467311a_single_20261025_203703.json
+### 2026-10-25_20:37:17 3/5 复述 recall_margin n=50 (贪心+logprob)
+   27: OK   0.82s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   28: OK   0.89s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   29: OK   0.85s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   30: OK   0.87s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   31: OK   0.82s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   32: OK   0.80s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   33: OK   0.90s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   34: OK   0.97s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   35: OK   0.93s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   36: OK   0.92s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   37: OK   0.90s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   38: OK   0.89s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   39: OK   0.95s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   40: OK   0.96s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   41: OK   0.86s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   42: OK   0.84s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   43: OK   0.94s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   44: OK   0.97s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   45: OK   0.88s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   46: OK   0.77s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   47: OK   0.99s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   48: OK   1.02s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   49: OK   0.94s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   50: OK   0.99s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+
+不同输出种类: 1  多数输出 x50  错误率(不含 expect): 0/50
+
+落盘: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/recall_margin_d467311a_20261025_203717.jsonl
+### 2026-10-25_20:38:05 4/5 工具调用 1 次
+finish: tool_calls | tool_calls: [{"id": "call_286193923d5a439cb46fee76", "index": 0, "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"北京\"}"}}] | usage: {'prompt_tokens': 271, 'total_tokens': 310, 'completion_tokens': 39, 'prompt_tokens_details': None, 'reasoning_tokens': 0}
+### 2026-10-25_20:38:07 5/5 多流 bench k=4 mt=500 temp=0.7 (本轮新数据, 无上一轮同条件对照)
+    "p10": 22.95949622042593,
+    "p90": 26.195939721278414,
+    "mean": 24.885449576068087,
+    "n": 4
+  },
+  "sum_completion_tokens": 2000,
+  "note": "decode tok/s 用 usage.completion_tokens 计; SSE 事件计数见 events 列 (会低估 accept-len 倍)",
+  "overlap_window": {
+    "window_s": 16.87367272377014,
+    "tokens": 1871.988420569245,
+    "agg_tok_s": 110.94137306172549
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/bench_d467311a_k4_20261025_203807.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/bench_d467311a_k4_20261025_203807.csv",
+  "vram_max_mib": {
+    "gpu4": 78042,
+    "gpu5": 78136,
+    "gpu6": 78136,
+    "gpu7": 77776
+  }
+}
+[2026-10-25T20:38:29+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/bench_d467311a_k4_20261025_203807.json
+### 2026-10-25_20:38:29 完成

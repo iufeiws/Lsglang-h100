@@ -1,0 +1,10 @@
+### 每个参数变体单独进程运行 (绕开张量生命周期碰撞)
+--- graph=False
+.                                                                        [100%]
+1 passed in 21.74s
+--- graph=True
+.                                                                        [100%]
+1 passed in 16.10s
+--- test_lk_verify_uva.py (12 例)
+............                                                             [100%]
+12 passed in 16.03s
