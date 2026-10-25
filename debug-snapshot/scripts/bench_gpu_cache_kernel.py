@@ -85,17 +85,21 @@ def main():
     ap.add_argument("--eager-rows", type=int, nargs="*", default=[128, 512, 2048])
     ap.add_argument("--iters", type=int, default=50)
     ap.add_argument("--staging", type=int, default=4)
+    ap.add_argument("--precision", choices=["bf16", "fp8"], default="bf16",
+                    help="bf16 = W4A16, fp8 = Humming W4A8 (与 LK_GPU_CACHE_PRECISION 相同)")
     ap.add_argument("--miss-experts", type=int, nargs="*", default=[0, 1, 2, 4, 6, 8])
     args = ap.parse_args()
 
     slots = ROWS_VRAM - args.staging
+    fp8 = args.precision == "fp8"
     cache = LayerCache(layer_id=0, host_tensors=_experts(), num_slots=slots,
-                       num_staging=args.staging, device="cuda")
+                       num_staging=args.staging, fp8=fp8, device="cuda")
     max_rows = max(args.rows + args.eager_rows)
     buffers = ForwardBuffers(num_experts=E, max_rows=max_rows, top_k=K, hidden=H,
                              intermediate=I, num_staging=args.staging, device="cuda")
     params = MoeParams(swiglu_limit=torch.full((ROWS_VRAM,), 10.0, device="cuda"), limit=10.0,
-                       tp_size=1, tp_rank=0)
+                       tp_size=1, tp_rank=0,
+                       fc2_act_scale=torch.ones((), device="cuda") if fp8 else None)
     gen = torch.Generator().manual_seed(1)
 
     def bench(rows, hit, graph, ids=None):
@@ -103,8 +107,14 @@ def main():
         w = torch.rand(rows, K, device="cuda")
         if ids is None:
             ids = _routes(rows, args.local, hit, gen, slots)
-        run = lambda: cache_forward(cache, hidden_states=x, topk_ids=ids, topk_weights=w,  # noqa: E731
-                                    buffers=buffers, params=params, graph=graph)
+
+        def run():
+            # Staging rows persist across forwards; empty them so every replay pays its
+            # misses' copies instead of reusing the previous replay's.
+            cache.stage_expert.fill_(-1)
+            return cache_forward(cache, hidden_states=x, topk_ids=ids, topk_weights=w,
+                                 buffers=buffers, params=params, graph=graph)
+
         iters = args.iters if graph else max(3, args.iters // 5)
         return _time(run, iters, graph)
 

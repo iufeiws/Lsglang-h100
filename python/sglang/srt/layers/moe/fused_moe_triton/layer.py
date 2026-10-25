@@ -109,6 +109,8 @@ logger = logging.getLogger(__name__)
 
 from sglang.srt.utils.lk_moe_env import (
     get_gpu_expert_cache_policy,
+    get_gpu_expert_cache_precision,
+    get_gpu_expert_cache_prefetch_programs,
     get_gpu_expert_cache_slots,
     get_gpu_expert_cache_staging,
     get_lk_verify_uva_provider,
@@ -634,6 +636,9 @@ class FusedMoE(torch.nn.Module):
             else 0
         )
         self._gpu_cache = None
+        # (MoEGate, scoring_func) of this layer, set by the model; layer - 1 uses it to
+        # prefetch this layer's experts into the GPU expert cache.
+        self.prefetch_router = None
 
         self._gpu_prefill_driver = None
         self._pool_layer_info = None
@@ -1760,6 +1765,12 @@ class FusedMoE(torch.nn.Module):
          
         from sglang.srt.layers.moe.token_dispatcher import StandardCombineInput
         
+        if (FusedMoE.gpu_cache_buffers is not None and self.model_type == "main"
+                and (torch.cuda.is_current_stream_capturing() or get_is_capture_mode())):
+            from sglang.srt.layers.moe.gpu_expert_cache import prefetch_next_layer
+            prefetch_next_layer(self.layer_id, dispatch_output.hidden_states,
+                                FusedMoE.gpu_cache_buffers)
+
         # 1. GPU resident layer: original path unchanged
         if self.is_gpu_resident_layer:
             return self.quant_method.apply(
@@ -2422,6 +2433,8 @@ class FusedMoE(torch.nn.Module):
             ForwardBuffers,
             LayerCache,
             MoeParams,
+            PrefetchTarget,
+            register_prefetch_target,
         )
         tensors = tuple(t.data.view(torch.uint8) for t in (w13, s13, w2, s2))
         if not all(t.device.type == "cpu" and t.is_contiguous() for t in tensors):
@@ -2441,9 +2454,10 @@ class FusedMoE(torch.nn.Module):
         device = torch.cuda.current_device()
         # Staging rows come out of the same VRAM budget as the cache slots.
         staging = min(get_gpu_expert_cache_staging(), self.gpu_cache_slots - 1)
+        fp8 = get_gpu_expert_cache_precision() == "fp8"
         cache = LayerCache(layer_id=self.layer_id, host_tensors=tensors,
                            num_slots=self.gpu_cache_slots - staging, num_staging=staging,
-                           device=device)
+                           fp8=fp8, device=device)
         buffers = FusedMoE.gpu_cache_buffers
         if buffers is None or buffers.max_rows < self.max_num_seqs:
             FusedMoE.gpu_cache_buffers = ForwardBuffers(
@@ -2458,17 +2472,27 @@ class FusedMoE(torch.nn.Module):
             limit=0.0 if limit is None else limit,
             tp_size=self.moe_tp_size,
             tp_rank=self.moe_tp_rank,
+            fc2_act_scale=torch.ones((), dtype=torch.float32, device=device) if fp8 else None,
         )
+        programs = get_gpu_expert_cache_prefetch_programs()
+        if programs > 0 and staging > 0 and self.prefetch_router is not None:
+            gate, scoring_func = self.prefetch_router
+            register_prefetch_target(self.layer_id, PrefetchTarget(
+                cache=cache, gate_weight=gate.weight,
+                correction_bias=gate.e_score_correction_bias, scoring_func=scoring_func,
+                top_k=self.top_k, ep_rank=self.moe_ep_rank, programs=programs))
         CacheManager.register(cache, device=device, **get_gpu_expert_cache_policy())
         self._gpu_cache = cache
         # Kept alive: the miss kernel reads them in place over UVA.
         self._verify_uva_tensors = tensors
         slot_bytes = sum(t[0].numel() for t in tensors)
         logger.info(
-            "LK_GPU_CACHE_SLOTS: layer %s: %d VRAM slots + %d staging (%.2f GiB), %d "
-            "experts pinned on host (%.2f GiB, checkpoint + slot layouts)", self.layer_id,
-            cache.num_slots, staging, (cache.num_slots + staging) * slot_bytes / 2**30,
-            cache.num_experts, cache.host_bytes() / 2**30)
+            "LK_GPU_CACHE_SLOTS: layer %s: %d VRAM slots + %d staging (%.2f GiB, %s), %d "
+            "experts pinned on host (%.2f GiB, checkpoint + slot layouts), prefetch %s",
+            self.layer_id, cache.num_slots, staging,
+            (cache.num_slots + staging) * slot_bytes / 2**30, "W4A8" if fp8 else "W4A16",
+            cache.num_experts, cache.host_bytes() / 2**30,
+            "on" if programs > 0 and self.prefetch_router is not None else "off")
 
     def _gpu_cache_forward(self, hidden_states, topk_weights, topk_ids):
         from sglang.srt.layers.moe.gpu_expert_cache import cache_forward

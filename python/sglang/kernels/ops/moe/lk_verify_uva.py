@@ -539,22 +539,36 @@ def launch_draft_miss_uva(
     )
 
 
+# Counters of ``assign_slots`` (int32 [STAT_COUNT], per layer): routes for the first two,
+# experts for the rest.
+STAT_ROUTES, STAT_SLOT_HITS, STAT_STAGE_KEPT, STAT_STAGE_COPIED, STAT_OVERFLOW, STAT_PREFETCHED = range(6)
+STAT_COUNT = 8
+# Buckets of the distinct-missed-experts-per-forward histogram; the last one is ">=".
+MISS_BUCKETS = 33
+
+
 @triton.jit
 def _assign_slots_kernel(
     ids_ptr,
     slot_of_ptr,
     mark_ptr,
-    staging_expert_ptr,
+    free_rows_ptr,
+    stage_expert_ptr,
+    copy_expert_ptr,
     slot_ids_ptr,
     miss_tab_ptr,
     hist_ptr,
+    stats_ptr,
+    miss_hist_ptr,
     n,
     num_experts,
     num_slots,
     num_staging,
+    ROUTE: tl.constexpr,
     BLOCK_S: tl.constexpr,
     BLOCK_E: tl.constexpr,
     BLOCK_P: tl.constexpr,
+    BUCKETS: tl.constexpr,
 ):
     s = tl.arange(0, BLOCK_S)
     live = s < n
@@ -565,74 +579,115 @@ def _assign_slots_kernel(
     e = tl.arange(0, BLOCK_E)
     in_e = e < num_experts
     p = tl.arange(0, BLOCK_P)
-    tl.store(mark_ptr + e, 0, mask=in_e)
-    tl.store(staging_expert_ptr + p, -1, mask=p < num_staging)
+    in_p = p < num_staging
+    # mark[e]: -1 not missed, -2 missed without a row, >= 0 its staging row.
+    tl.store(mark_ptr + e, -1, mask=in_e)
     tl.debug_barrier()
-    tl.store(mark_ptr + expert, 1, mask=miss)
-    tl.atomic_add(hist_ptr + expert, 1, mask=local)
+    tl.store(mark_ptr + expert, -2, mask=miss)
     tl.debug_barrier()
-    marked = tl.load(mark_ptr + e, mask=in_e, other=0, volatile=True)
-    # Missed experts take staging slots in expert order; the rest overflow to UVA.
-    rank = tl.cumsum(marked, 0) - marked
-    staged = (marked > 0) & (rank < num_staging)
-    tl.store(staging_expert_ptr + rank, e, mask=staged)
-    tl.store(mark_ptr + e, tl.where(staged, rank, -1), mask=in_e)
+    # A staging row still holding a missed expert (prefetched, or from an earlier
+    # forward) serves it without a copy.
+    holder = tl.load(stage_expert_ptr + p, mask=in_p, other=-1)
+    held = in_p & (holder >= 0)
+    keep = held & (tl.load(mark_ptr + holder, mask=held, other=-1, volatile=True) == -2)
     tl.debug_barrier()
-    stage = tl.load(mark_ptr + expert, mask=miss, other=-1, volatile=True)
-    overflow = miss & (stage < 0)
-    slot_id = tl.where(slot >= 0, slot,
-                       tl.where(stage >= 0, num_slots + stage, num_slots + num_staging))
-    tl.store(slot_ids_ptr + s, slot_id, mask=live)
-    tl.store(miss_tab_ptr + s, tl.where(overflow, -1, 0), mask=live)
+    tl.store(mark_ptr + holder, p, mask=keep)
+    tl.debug_barrier()
+    marked = tl.load(mark_ptr + e, mask=in_e, other=-1, volatile=True)
+    need = (marked == -2).to(tl.int32)
+    rank = tl.cumsum(need, 0) - need
+    free = (in_p & ~keep).to(tl.int32)
+    tl.store(free_rows_ptr + tl.cumsum(free, 0) - free, p, mask=free > 0)
+    n_free = tl.sum(free, 0)
+    tl.store(copy_expert_ptr + p, -1, mask=in_p)
+    tl.debug_barrier()
+    # Missed experts take the free rows in expert order; the rest overflow.
+    assign = (need > 0) & (rank < n_free)
+    row = tl.load(free_rows_ptr + rank, mask=assign, other=-1, volatile=True)
+    tl.store(mark_ptr + e, row, mask=assign)
+    tl.store(copy_expert_ptr + row, e, mask=assign)
+    tl.store(stage_expert_ptr + row, e, mask=assign)
+    n_assigned = tl.sum(assign.to(tl.int32), 0)
+    if ROUTE:
+        tl.debug_barrier()
+        stage = tl.load(mark_ptr + expert, mask=miss, other=-1, volatile=True)
+        overflow = miss & (stage < 0)
+        slot_id = tl.where(slot >= 0, slot,
+                           tl.where(stage >= 0, num_slots + stage, num_slots + num_staging))
+        tl.store(slot_ids_ptr + s, slot_id, mask=live)
+        tl.store(miss_tab_ptr + s, tl.where(overflow, -1, 0), mask=live)
+        tl.atomic_add(hist_ptr + expert, 1, mask=local)
+        n_missed = tl.sum((in_e & (marked != -1)).to(tl.int32), 0)
+        tl.atomic_add(miss_hist_ptr + tl.minimum(n_missed, BUCKETS - 1), 1)
+        tl.atomic_add(stats_ptr + 0, tl.sum(local.to(tl.int32), 0))
+        tl.atomic_add(stats_ptr + 1, tl.sum((local & (slot >= 0)).to(tl.int32), 0))
+        tl.atomic_add(stats_ptr + 2, tl.sum(keep.to(tl.int32), 0))
+        tl.atomic_add(stats_ptr + 3, n_assigned)
+        tl.atomic_add(stats_ptr + 4, tl.sum(need, 0) - n_assigned)
+    else:
+        tl.atomic_add(stats_ptr + 5, n_assigned)
 
 
-def assign_slots(*, topk_ids, slot_of, mark, staging_expert, slot_ids, miss_tab, hist,
-                 num_slots: int, num_staging: int) -> None:
-    """Route each local expert to its VRAM slot or a staging slot; graph capturable.
+def assign_slots(*, topk_ids, slot_of, mark, free_rows, stage_expert, copy_expert,
+                 slot_ids, miss_tab, hist, stats, miss_hist, num_slots: int,
+                 num_staging: int, route: bool = True) -> None:
+    """Route local experts to VRAM slots or staging rows; graph capturable.
 
-    ``slot_ids`` (the CUTLASS ids) gets the slot, ``num_slots + j`` for the j-th
-    missed expert while staging slots last, else ``num_slots + num_staging`` (out of
-    range: skipped; also for EP-remote -1). ``staging_expert`` [num_staging] gets
-    the expert to copy into each staging slot or -1. ``miss_tab`` is -1 only for
-    routes left to the UVA kernel (its ``slot_tab``). ``hist`` counts local routes.
+    ``stage_expert`` [num_staging] (persistent per layer) holds the expert in each
+    staging row or -1. Missed experts already held keep their row; the others take
+    rows not holding a missed expert, and ``copy_expert`` [num_staging] gets the
+    expert each row must receive (or -1). With ``route``, ``slot_ids`` gets the
+    CUTLASS id of each route (slot, ``num_slots + row``, or the out-of-range
+    ``num_slots + num_staging`` for -1 and overflow), ``miss_tab`` is -1 exactly for
+    overflow (the UVA kernel's ``slot_tab``), and ``hist``, ``stats`` and
+    ``miss_hist`` count. Without it ``topk_ids`` are predictions (a prefetch) and
+    only ``stats[STAT_PREFETCHED]`` counts.
     """
     n = topk_ids.numel()
     num_experts = slot_of.numel()
+    dummy = copy_expert
     _assign_slots_kernel[(1,)](
-        topk_ids, slot_of, mark, staging_expert, slot_ids, miss_tab, hist,
+        topk_ids, slot_of, mark, free_rows, stage_expert, copy_expert,
+        slot_ids if route else dummy, miss_tab if route else dummy,
+        hist if route else dummy, stats, miss_hist if route else dummy,
         n, num_experts, num_slots, num_staging,
+        ROUTE=route,
         BLOCK_S=triton.next_power_of_2(max(n, 2)),
         BLOCK_E=triton.next_power_of_2(num_experts),
         BLOCK_P=triton.next_power_of_2(max(num_staging, 2)),
+        BUCKETS=MISS_BUCKETS,
     )
 
 
 @triton.jit
-def _stage_copy_kernel(staging_expert_ptr, src_ptrs, dst_ptrs, words_ptr, BLOCK: tl.constexpr):
-    p = tl.program_id(0)
-    t = tl.program_id(1)
-    expert = tl.load(staging_expert_ptr + p)
-    if expert < 0:
-        return
-    words = tl.load(words_ptr + t)
-    start = tl.program_id(2) * BLOCK
-    if start >= words:
-        return
-    off = start + tl.arange(0, BLOCK)
-    mask = off < words
-    src = tl.cast(tl.load(src_ptrs + t), tl.pointer_type(tl.int64)) + expert.to(tl.int64) * words
-    dst = tl.cast(tl.load(dst_ptrs + t), tl.pointer_type(tl.int64)) + p * words
-    tl.store(dst + off, tl.load(src + off, mask=mask), mask=mask)
+def _stage_copy_kernel(copy_expert_ptr, src_ptrs, dst_ptrs, words_ptr, total_items,
+                       num_tensors, max_chunks, BLOCK: tl.constexpr, NPROG: tl.constexpr):
+    for item in range(tl.program_id(0), total_items, NPROG):
+        p = item // (num_tensors * max_chunks)
+        t = (item // max_chunks) % num_tensors
+        start = (item % max_chunks) * BLOCK
+        expert = tl.load(copy_expert_ptr + p)
+        words = tl.load(words_ptr + t)
+        if (expert >= 0) & (start < words):
+            off = start + tl.arange(0, BLOCK)
+            mask = off < words
+            src = (tl.cast(tl.load(src_ptrs + t), tl.pointer_type(tl.int32))
+                   + expert.to(tl.int64) * words)
+            dst = tl.cast(tl.load(dst_ptrs + t), tl.pointer_type(tl.int32)) + p * words
+            tl.store(dst + off, tl.load(src + off, mask=mask), mask=mask)
 
 
-def stage_copy(*, staging_expert, src_ptrs, dst_ptrs, words, num_staging: int,
-               max_words: int) -> None:
-    """Copy each staged expert's blocks (host, over UVA) into its staging slot.
+def stage_copy(*, copy_expert, src_ptrs, dst_ptrs, words, num_staging: int, max_words: int,
+               num_programs: int) -> None:
+    """Copy each row's ``copy_expert`` blocks (host, over UVA) into that staging row.
 
-    Tensor ``t`` of expert ``e`` is ``words[t]`` int64 words at ``src_ptrs[t]`` +
-    e * words[t]; staging slot ``p`` is at ``dst_ptrs[t]`` + p * words[t]. Wide
-    coalesced reads keep PCIe saturated, unlike the GEMM kernels' 32 B row reads.
+    Tensor ``t`` of expert ``e`` is ``words[t]`` int32 words at ``src_ptrs[t]`` +
+    e * words[t]; staging row ``p`` is at ``dst_ptrs[t]`` + p * words[t]. A fixed
+    number of persistent programs keeps PCIe saturated with wide coalesced reads
+    while leaving SMs to kernels running alongside (a prefetch overlaps compute).
     """
     block = 2048
-    _stage_copy_kernel[(num_staging, words.numel(), triton.cdiv(max_words, block))](
-        staging_expert, src_ptrs, dst_ptrs, words, BLOCK=block)
+    max_chunks = triton.cdiv(max_words, block)
+    _stage_copy_kernel[(num_programs,)](
+        copy_expert, src_ptrs, dst_ptrs, words, num_staging * words.numel() * max_chunks,
+        words.numel(), max_chunks, BLOCK=block, NPROG=num_programs)

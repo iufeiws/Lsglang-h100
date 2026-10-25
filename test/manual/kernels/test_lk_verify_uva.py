@@ -191,10 +191,82 @@ def test_eager_plan_splits_hot_experts_across_tiles():
     assert torch.equal(hist.cpu(), torch.bincount(local, minlength=E).int())
 
 
+def _assign(ids, slot_of, stage_expert, *, S, P, route=True, stats=None, miss_hist=None,
+            hist=None):
+    from sglang.kernels.ops.moe.lk_verify_uva import MISS_BUCKETS, STAT_COUNT, assign_slots
+
+    device = ids.device
+    E = slot_of.numel()
+    out = dict(
+        slot_ids=torch.empty(ids.numel(), dtype=torch.int32, device=device),
+        miss_tab=torch.empty(ids.numel(), dtype=torch.int32, device=device),
+        copy_expert=torch.empty(P, dtype=torch.int32, device=device),
+        stats=stats if stats is not None else torch.zeros(STAT_COUNT, dtype=torch.int32, device=device),
+        miss_hist=miss_hist if miss_hist is not None
+        else torch.zeros(MISS_BUCKETS, dtype=torch.int32, device=device),
+        hist=hist if hist is not None else torch.zeros(E, dtype=torch.int32, device=device),
+    )
+    assign_slots(topk_ids=ids, slot_of=slot_of,
+                 mark=torch.empty(E, dtype=torch.int32, device=device),
+                 free_rows=torch.empty(P, dtype=torch.int32, device=device),
+                 stage_expert=stage_expert, copy_expert=out["copy_expert"],
+                 slot_ids=out["slot_ids"], miss_tab=out["miss_tab"], hist=out["hist"],
+                 stats=out["stats"], miss_hist=out["miss_hist"], num_slots=S,
+                 num_staging=P, route=route)
+    return {k: v.cpu() for k, v in out.items()}
+
+
+def test_assign_slots_keeps_held_rows_and_prefetches():
+    """Missed experts already in a staging row (prefetched or left by an earlier forward)
+    are served without a copy, others take rows not holding a missed expert, and the
+    remainder overflow to UVA; a prefetch only fills rows."""
+    from sglang.kernels.ops.moe.lk_verify_uva import (
+        STAT_OVERFLOW,
+        STAT_PREFETCHED,
+        STAT_ROUTES,
+        STAT_SLOT_HITS,
+        STAT_STAGE_COPIED,
+        STAT_STAGE_KEPT,
+    )
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    E, S, P = 10, 3, 3
+    slot_of = torch.full((E,), -1, dtype=torch.int32)
+    slot_of[torch.tensor([0, 1, 2])] = torch.arange(S, dtype=torch.int32)
+    slot_of = slot_of.to(device)
+    stage_expert = torch.full((P,), -1, dtype=torch.int32, device=device)
+    # Prefetch predicts 7 (a miss) and 1 (in a slot, ignored): 7 takes row 0.
+    pf = _assign(torch.tensor([[7, 1]], dtype=torch.int32, device=device), slot_of,
+                 stage_expert, S=S, P=P, route=False)
+    assert pf["copy_expert"].tolist() == [7, -1, -1]
+    assert int(pf["stats"][STAT_PREFETCHED]) == 1
+    assert stage_expert.cpu().tolist() == [7, -1, -1]
+    # The forward misses 4, 5, 6, 7 (and 9 twice); remote -1 is skipped.
+    ids = torch.tensor([[0, 7, 4], [5, -1, 9], [6, 9, 2]], dtype=torch.int32, device=device)
+    out = _assign(ids, slot_of, stage_expert, S=S, P=P)
+    # 7 keeps row 0; 4 and 5 take rows 1 and 2 (expert order); 6 and 9 overflow.
+    assert out["copy_expert"].tolist() == [-1, 4, 5]
+    assert stage_expert.cpu().tolist() == [7, 4, 5]
+    skip = S + P
+    assert out["slot_ids"].tolist() == [0, S + 0, S + 1, S + 2, skip, skip, skip, skip, 2]
+    assert out["miss_tab"].tolist() == [0, 0, 0, 0, 0, -1, -1, -1, 0]
+    st = out["stats"]
+    assert (int(st[STAT_ROUTES]), int(st[STAT_SLOT_HITS])) == (8, 2)
+    assert (int(st[STAT_STAGE_KEPT]), int(st[STAT_STAGE_COPIED]), int(st[STAT_OVERFLOW])) == (1, 2, 2)
+    assert out["miss_hist"].tolist().index(1) == 5  # one forward with 5 distinct misses
+    assert out["hist"].tolist() == [1, 0, 1, 0, 1, 1, 1, 1, 0, 2]
+    # Next forward misses only 5 and 9: 5 keeps row 2, 9 refills a row held by 7 or 4.
+    out = _assign(torch.tensor([[5, 9]], dtype=torch.int32, device=device), slot_of,
+                  stage_expert, S=S, P=P)
+    assert out["copy_expert"].tolist() == [9, -1, -1]
+    assert out["slot_ids"].tolist() == [S + 2, S + 0]
+    assert stage_expert.cpu().tolist() == [9, 4, 5]
+
+
 def test_assign_slots_stages_misses_and_overflows_the_rest_to_uva():
-    """Slotted routes keep their slot, the first P missed experts get staging rows (and
-    their bytes copied there), further misses go to the UVA kernel; -1 routes are skipped."""
-    from sglang.kernels.ops.moe.lk_verify_uva import assign_slots, stage_copy
+    """Staged misses are copied into their rows with few persistent programs; overflow
+    routes alone are computed by the UVA kernel."""
+    from sglang.kernels.ops.moe.lk_verify_uva import stage_copy
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(5)
@@ -212,28 +284,16 @@ def test_assign_slots_stages_misses_and_overflows_the_rest_to_uva():
     weights = torch.rand(rows, k)
 
     to = lambda t: t.to(device)  # noqa: E731
-    slot_ids = torch.empty(rows * k, dtype=torch.int32, device=device)
-    miss_tab = torch.empty(rows * k, dtype=torch.int32, device=device)
-    mark = torch.empty(E, dtype=torch.int32, device=device)
-    staging_expert = torch.empty(P, dtype=torch.int32, device=device)
-    hist = torch.zeros(E, dtype=torch.int32, device=device)
-    assign_slots(topk_ids=to(ids), slot_of=to(slot_of), mark=mark,
-                 staging_expert=staging_expert, slot_ids=slot_ids, miss_tab=miss_tab,
-                 hist=hist, num_slots=S, num_staging=P)
+    stage_expert = torch.full((P,), -1, dtype=torch.int32, device=device)
+    out = _assign(to(ids), to(slot_of), stage_expert, S=S, P=P)
     flat = ids.flatten().long()
     local = flat >= 0
     slot = torch.where(local, slot_of[flat.clamp(min=0)], -1)
     missed = sorted(set(flat[local & (slot < 0)].tolist()))
     assert len(missed) > P
-    staged = {e: j for j, e in enumerate(missed[:P])}
-    want_ids = torch.tensor([
-        int(slot[i]) if slot[i] >= 0 else S + staged.get(int(flat[i]), P) for i in range(flat.numel())
-    ], dtype=torch.int32)
-    assert torch.equal(slot_ids.cpu(), want_ids)
-    assert torch.equal(staging_expert.cpu(), torch.tensor(missed[:P], dtype=torch.int32))
-    overflow = local & (slot < 0) & (want_ids == S + P)
-    assert torch.equal(miss_tab.cpu() < 0, overflow)
-    assert torch.equal(hist.cpu(), torch.bincount(flat[local], minlength=E).int())
+    assert out["copy_expert"].tolist() == missed[:P]
+    overflow = local & (slot < 0) & (out["slot_ids"] == S + P)
+    assert torch.equal(out["miss_tab"] < 0, overflow)
 
     # The copy reads each staged expert's 4 blocks and leaves the other rows alone.
     sources = [t.clone() for t in (w13, s13, w2, s2)]
@@ -241,16 +301,19 @@ def test_assign_slots_stages_misses_and_overflows_the_rest_to_uva():
         sources = [t.pin_memory() for t in sources]
     slabs = [torch.zeros((S + P, *t.shape[1:]), dtype=torch.uint8, device=device) for t in sources]
     i64 = lambda vals: torch.tensor(vals, dtype=torch.int64, device=device)  # noqa: E731
-    words = [t[0].numel() // 8 for t in sources]
-    stage_copy(staging_expert=staging_expert, src_ptrs=i64([t.data_ptr() for t in sources]),
-               dst_ptrs=i64([slab[S].data_ptr() for slab in slabs]), words=i64(words),
-               num_staging=P, max_words=max(words))
+    words = [t[0].numel() // 4 for t in sources]
+    stage_copy(copy_expert=to(out["copy_expert"]),
+               src_ptrs=i64([t.data_ptr() for t in sources]),
+               dst_ptrs=i64([slab[S].data_ptr() for slab in slabs]),
+               words=torch.tensor(words, dtype=torch.int32, device=device),
+               num_staging=P, max_words=max(words), num_programs=3)
     for slab, src in zip(slabs, sources):
         assert not slab[:S].any()
         for j, e in enumerate(missed[:P]):
             assert torch.equal(slab[S + j].cpu(), src[e].cpu())
 
-    expected = _reference(x, ids, weights, miss_tab.cpu(), w13, s13, w2, s2, 1, 0.0, True)
+    miss_tab = to(out["miss_tab"])
+    expected = _reference(x, ids, weights, out["miss_tab"], w13, s13, w2, s2, 1, 0.0, True)
     scratch = UvaScratch.allocate(num_experts=E, max_slots=rows * k, intermediate=I, device=device)
     for eager_plan in (False, True):
         gout_part = torch.full((rows * k, H), float("nan"), device=device)
