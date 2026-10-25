@@ -1,0 +1,62 @@
+==============================================================
+ 停止 Lsglang serve · DeepSeek-V4.1-Flash-1017 · TP4 (端口 18010)
+ conf      : /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.conf
+ PID 文件  : /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+ 策略      : SIGTERM(进程组) → 等 60s → SIGKILL(进程组)
+==============================================================
+[2026-10-25 22:43:42] PID 48832 cmdline: /mnt/SSD01/models/.llm-env/Lsglang/env/bin/python /mnt/SSD01/models/.llm-env/Lsglang/env/bin/sglang serve --model /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash
+[2026-10-25 22:43:42] 归属校验通过 ✓
+[2026-10-25 22:43:42] 将向进程组 -48832 发信号 (setsid 子会话, PGID==PID); 成员数 7
+[2026-10-25 22:43:42] 发送 SIGTERM 到 进程组 -48832…
+[2026-10-25 22:43:42]   等待退出… 0s / 60s (PID 48832 RSS=1510 MiB)
+[2026-10-25 22:43:47]   等待退出… 5s / 60s (PID 48832 RSS=1510 MiB)
+[2026-10-25 22:43:48] ✅ SIGTERM 后 6s 内优雅退出
+[2026-10-25 22:43:48] ⚠ 同进程组仍有残留 (可能是我方 worker/scheduler, 请人工确认):
+    52758 48832 [sglang::schedul] <defunct>
+    52759 48832 [sglang::schedul] <defunct>
+    52760 48832 [sglang::schedul] <defunct>
+    52761 48832 [sglang::schedul] <defunct>
+[2026-10-25 22:43:48] 已删除 PID 文件: /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100.pid
+[2026-10-25 22:43:49] 端口 18010 已释放 ✓
+[2026-10-25 22:43:49] 日志尾部 (/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261025_212933.log):
+    [2026-10-25 22:39:42 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:39:43 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:39:43 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:40:10 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:40:13 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:40:13 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:40:13 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:40:40 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:40:43 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:40:43 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:40:43 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:41:10 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:41:13 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:41:13 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:41:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:41:41 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:41:43 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:41:43 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:41:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:42:11 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:42:13 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:42:13 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:42:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:42:41 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:42:43 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:42:43 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:42:44 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:43:11 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:43:13 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:43:13 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:43:14 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: routes=0 hit=0.0% swaps=0
+    [2026-10-25 22:43:28 TP0 EP0] Prefill batch, #new-seq: 1, #new-token: 1, #cached-token: 0, full token usage: 0.00, swa token usage: 0.00, #running-req: 0, #queue-req: 0, #pending-token: 0, cuda graph: False, input throughput (token/s): 0.00
+    [2026-10-25 22:43:29] INFO:     127.0.0.1:56466 - "GET /health HTTP/1.1" 200 OK
+    [2026-10-25 22:43:41 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: routes=404 hit=58.9% swaps=122
+    [2026-10-25 22:43:42] SIGTERM received. signum=None frame=None. Draining requests and shutting down...
+    [2026-10-25 22:43:43] Subprocess detokenizer (pid=52762) crashed with exit code -15. Triggering SIGQUIT for cleanup...
+    [2026-10-25 22:43:43] SIGQUIT received. signum=None, frame=None. It usually means one child failed.
+    [2026-10-25 22:43:43] Sleeping 5 seconds before crash diagnostics to let GPU activity settle.
+    [2026-10-25 22:43:48] No live scheduler processes found; skipping py-spy and CUDA coredump.
+    [2026-10-25 22:43:48] kill_process_tree called: parent_pid=48832, include_parent=True, pid=48832
+[2026-10-25 22:43:49] 停止流程结束。

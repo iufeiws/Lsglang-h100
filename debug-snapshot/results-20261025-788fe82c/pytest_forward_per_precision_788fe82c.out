@@ -1,0 +1,9 @@
+### 每个 precision 单独进程跑
+--- -k bf16 ---
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 3 deselected, 19 warnings in 22.28s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+--- -k fp8 ---
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3 passed, 3 deselected, 19 warnings in 15.33s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

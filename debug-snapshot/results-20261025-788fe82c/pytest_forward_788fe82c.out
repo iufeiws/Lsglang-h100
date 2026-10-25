@@ -1,0 +1,279 @@
+...EEE                                                                   [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_hits_staged_and_overflow_misses_match_the_reference[fp8-False] _
+
+request = <SubRequest 'setup' for <Function test_hits_staged_and_overflow_misses_match_the_reference[fp8-False]>>
+
+    @pytest.fixture(scope="module", params=["bf16", "fp8"])
+    def setup(request):
+        """One cache per precision for the module: registered host memory is never
+        unregistered, so another cache on the same addresses would fail (CUDA error 712)."""
+        from sglang.srt.layers.moe.gpu_expert_cache import ForwardBuffers, LayerCache, MoeParams
+    
+        torch.manual_seed(3)
+        experts = (
+            torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8),
+            torch.randint(119, 123, (E, 2 * I, H // 32), dtype=torch.uint8),
+            torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8),
+            torch.randint(119, 123, (E, H, I // 32), dtype=torch.uint8),
+        )
+        fp8 = request.param == "fp8"
+>       cache = LayerCache(layer_id=0, host_tensors=experts, num_slots=S, num_staging=P, fp8=fp8,
+                           device="cuda")
+
+test/manual/layers/test_gpu_expert_cache_forward.py:59: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py:159: in __init__
+    self.experts = register_host_experts(w13, s13, w2, s2, device=device)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+w13 = tensor([[[106, 152, 249,  ..., 205,  96, 216],
+         [ 60, 175, 164,  ...,  78, 165, 230],
+         [234, 164,  89,...76],
+         [ 92,  29, 115,  ..., 163, 234,  95],
+         [193,  58, 134,  ..., 140,   3, 232]]], dtype=torch.uint8)
+s13 = tensor([[[122, 119, 121,  ..., 119, 120, 121],
+         [121, 122, 119,  ..., 119, 121, 120],
+         [119, 122, 119,...21],
+         [119, 120, 121,  ..., 120, 122, 121],
+         [119, 121, 122,  ..., 120, 119, 120]]], dtype=torch.uint8)
+w2 = tensor([[[154, 131, 184,  ..., 178,  17, 175],
+         [180,  44,  64,  ..., 113, 174, 103],
+         [ 83, 109, 107,...12],
+         [ 52, 220,  53,  ..., 119,  10, 231],
+         [188, 145,  59,  ...,  50, 164, 164]]], dtype=torch.uint8)
+s2 = tensor([[[121, 122, 121,  ..., 120, 122, 121],
+         [120, 120, 119,  ..., 120, 121, 119],
+         [122, 122, 120,...21],
+         [122, 122, 121,  ..., 120, 120, 120],
+         [122, 120, 121,  ..., 119, 121, 121]]], dtype=torch.uint8)
+device = 'cuda'
+
+    def register_host_experts(w13, s13, w2, s2, *, device) -> HostExperts:
+        """Pin the CPU expert tensors in place and return their UVA addresses.
+    
+        The caller must keep the tensors alive for the process lifetime.
+        """
+        for t in (w13, s13, w2, s2):
+            assert t.device.type == "cpu" and t.is_contiguous(), t.shape
+            err = torch.cuda.cudart().cudaHostRegister(
+                t.data_ptr(), t.numel() * t.element_size(), 0
+            )
+            if int(err) != 0:
+>               raise RuntimeError(
+                    f"cudaHostRegister({t.numel() * t.element_size()} bytes) failed: {err}"
+                )
+E               RuntimeError: cudaHostRegister(1572864 bytes) failed: cudaError.???
+
+../Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/moe/lk_verify_uva.py:103: RuntimeError
+_ ERROR at setup of test_hits_staged_and_overflow_misses_match_the_reference[fp8-True] _
+
+request = <SubRequest 'setup' for <Function test_hits_staged_and_overflow_misses_match_the_reference[fp8-False]>>
+
+    @pytest.fixture(scope="module", params=["bf16", "fp8"])
+    def setup(request):
+        """One cache per precision for the module: registered host memory is never
+        unregistered, so another cache on the same addresses would fail (CUDA error 712)."""
+        from sglang.srt.layers.moe.gpu_expert_cache import ForwardBuffers, LayerCache, MoeParams
+    
+        torch.manual_seed(3)
+        experts = (
+            torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8),
+            torch.randint(119, 123, (E, 2 * I, H // 32), dtype=torch.uint8),
+            torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8),
+            torch.randint(119, 123, (E, H, I // 32), dtype=torch.uint8),
+        )
+        fp8 = request.param == "fp8"
+>       cache = LayerCache(layer_id=0, host_tensors=experts, num_slots=S, num_staging=P, fp8=fp8,
+                           device="cuda")
+
+test/manual/layers/test_gpu_expert_cache_forward.py:59: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py:159: in __init__
+    self.experts = register_host_experts(w13, s13, w2, s2, device=device)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+w13 = tensor([[[106, 152, 249,  ..., 205,  96, 216],
+         [ 60, 175, 164,  ...,  78, 165, 230],
+         [234, 164,  89,...76],
+         [ 92,  29, 115,  ..., 163, 234,  95],
+         [193,  58, 134,  ..., 140,   3, 232]]], dtype=torch.uint8)
+s13 = tensor([[[122, 119, 121,  ..., 119, 120, 121],
+         [121, 122, 119,  ..., 119, 121, 120],
+         [119, 122, 119,...21],
+         [119, 120, 121,  ..., 120, 122, 121],
+         [119, 121, 122,  ..., 120, 119, 120]]], dtype=torch.uint8)
+w2 = tensor([[[154, 131, 184,  ..., 178,  17, 175],
+         [180,  44,  64,  ..., 113, 174, 103],
+         [ 83, 109, 107,...12],
+         [ 52, 220,  53,  ..., 119,  10, 231],
+         [188, 145,  59,  ...,  50, 164, 164]]], dtype=torch.uint8)
+s2 = tensor([[[121, 122, 121,  ..., 120, 122, 121],
+         [120, 120, 119,  ..., 120, 121, 119],
+         [122, 122, 120,...21],
+         [122, 122, 121,  ..., 120, 120, 120],
+         [122, 120, 121,  ..., 119, 121, 121]]], dtype=torch.uint8)
+device = 'cuda'
+
+    def register_host_experts(w13, s13, w2, s2, *, device) -> HostExperts:
+        """Pin the CPU expert tensors in place and return their UVA addresses.
+    
+        The caller must keep the tensors alive for the process lifetime.
+        """
+        for t in (w13, s13, w2, s2):
+            assert t.device.type == "cpu" and t.is_contiguous(), t.shape
+            err = torch.cuda.cudart().cudaHostRegister(
+                t.data_ptr(), t.numel() * t.element_size(), 0
+            )
+            if int(err) != 0:
+>               raise RuntimeError(
+                    f"cudaHostRegister({t.numel() * t.element_size()} bytes) failed: {err}"
+                )
+E               RuntimeError: cudaHostRegister(1572864 bytes) failed: cudaError.???
+
+../Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/moe/lk_verify_uva.py:103: RuntimeError
+___ ERROR at setup of test_prefetched_experts_are_served_without_a_copy[fp8] ___
+
+request = <SubRequest 'setup' for <Function test_hits_staged_and_overflow_misses_match_the_reference[fp8-False]>>
+
+    @pytest.fixture(scope="module", params=["bf16", "fp8"])
+    def setup(request):
+        """One cache per precision for the module: registered host memory is never
+        unregistered, so another cache on the same addresses would fail (CUDA error 712)."""
+        from sglang.srt.layers.moe.gpu_expert_cache import ForwardBuffers, LayerCache, MoeParams
+    
+        torch.manual_seed(3)
+        experts = (
+            torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8),
+            torch.randint(119, 123, (E, 2 * I, H // 32), dtype=torch.uint8),
+            torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8),
+            torch.randint(119, 123, (E, H, I // 32), dtype=torch.uint8),
+        )
+        fp8 = request.param == "fp8"
+>       cache = LayerCache(layer_id=0, host_tensors=experts, num_slots=S, num_staging=P, fp8=fp8,
+                           device="cuda")
+
+test/manual/layers/test_gpu_expert_cache_forward.py:59: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py:159: in __init__
+    self.experts = register_host_experts(w13, s13, w2, s2, device=device)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+w13 = tensor([[[106, 152, 249,  ..., 205,  96, 216],
+         [ 60, 175, 164,  ...,  78, 165, 230],
+         [234, 164,  89,...76],
+         [ 92,  29, 115,  ..., 163, 234,  95],
+         [193,  58, 134,  ..., 140,   3, 232]]], dtype=torch.uint8)
+s13 = tensor([[[122, 119, 121,  ..., 119, 120, 121],
+         [121, 122, 119,  ..., 119, 121, 120],
+         [119, 122, 119,...21],
+         [119, 120, 121,  ..., 120, 122, 121],
+         [119, 121, 122,  ..., 120, 119, 120]]], dtype=torch.uint8)
+w2 = tensor([[[154, 131, 184,  ..., 178,  17, 175],
+         [180,  44,  64,  ..., 113, 174, 103],
+         [ 83, 109, 107,...12],
+         [ 52, 220,  53,  ..., 119,  10, 231],
+         [188, 145,  59,  ...,  50, 164, 164]]], dtype=torch.uint8)
+s2 = tensor([[[121, 122, 121,  ..., 120, 122, 121],
+         [120, 120, 119,  ..., 120, 121, 119],
+         [122, 122, 120,...21],
+         [122, 122, 121,  ..., 120, 120, 120],
+         [122, 120, 121,  ..., 119, 121, 121]]], dtype=torch.uint8)
+device = 'cuda'
+
+    def register_host_experts(w13, s13, w2, s2, *, device) -> HostExperts:
+        """Pin the CPU expert tensors in place and return their UVA addresses.
+    
+        The caller must keep the tensors alive for the process lifetime.
+        """
+        for t in (w13, s13, w2, s2):
+            assert t.device.type == "cpu" and t.is_contiguous(), t.shape
+            err = torch.cuda.cudart().cudaHostRegister(
+                t.data_ptr(), t.numel() * t.element_size(), 0
+            )
+            if int(err) != 0:
+>               raise RuntimeError(
+                    f"cudaHostRegister({t.numel() * t.element_size()} bytes) failed: {err}"
+                )
+E               RuntimeError: cudaHostRegister(1572864 bytes) failed: cudaError.???
+
+../Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/moe/lk_verify_uva.py:103: RuntimeError
+=============================== warnings summary ===============================
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/blockscaled_contiguous_gather_grouped_gemm_act_fusion.py:3459: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/blackwell/moe_w4a16_kernel.py:2386: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:29: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:31: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/utils.py:34: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:968: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    a_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/fused_moe/cute_dsl/hopper/contiguous_grouped_gemm_finalize_fusion.py:970: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    b_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:427: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    epi_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_blackwell.py:2391: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gemm/kernels/cute_dsl/low_latency_blockscaled_gemm.py:102: DeprecationWarning: cutlass.utils.smem_allocator.get_smem_capacity_in_bytes is deprecated; use cutlass.memory.get_smem_capacity_in_bytes instead. It will be removed in a future release.
+    _SMEM_CAPACITY_BYTES = cutlass.utils.get_smem_capacity_in_bytes("sm_100")
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gemm/kernels/grouped_gemm_masked_rubin.py:218: DeprecationWarning: cutlass.utils.LayoutEnum is deprecated; use cutlass.tensor_utils.LayoutEnum instead. It will be removed in a future release.
+    c_layout: utils.LayoutEnum,
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_chunked.py:95: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gdn_kernels/delta_rule_dsl/collective_store_tma.py:6: DeprecationWarning: cutlass.utils.tensormap_manager.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils.tensormap_manager import TensorMapManager, TensorMapUpdateMode
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/gdn_kernels/blackwell/gated_delta_net_cp_prefill.py:55: DeprecationWarning: cutlass.utils.TensorMapUpdateMode is deprecated; use cutlass.tensor_utils.TensorMapUpdateMode instead. It will be removed in a future release.
+    from cutlass.utils import TensorMapManager, TensorMapUpdateMode
+
+manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[bf16-False]
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/cute_dsl/availability.py:136: DeprecationWarning: Arch from arch.py is deprecated. Use Arch from enums.py instead.
+    from cutlass.base_dsl.arch import Arch
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR test/manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[fp8-False]
+ERROR test/manual/layers/test_gpu_expert_cache_forward.py::test_hits_staged_and_overflow_misses_match_the_reference[fp8-True]
+ERROR test/manual/layers/test_gpu_expert_cache_forward.py::test_prefetched_experts_are_served_without_a_copy[fp8]
+3 passed, 19 warnings, 3 errors in 16.47s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute

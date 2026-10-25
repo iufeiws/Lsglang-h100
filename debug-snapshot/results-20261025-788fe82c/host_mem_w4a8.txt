@@ -1,0 +1,15 @@
+采点: 2026-10-25 23:46:13   服务 launcher PID=9757
+
+sglang::scheduler_TP0_EP0 pid=14333  RSS=  334.06 GiB  Pss=  191.81 GiB  Private=  144.45 GiB  Shared_Clean=    0.78 GiB  Shared_Dirty=  188.83 GiB  Anonymous=   38.38 GiB  /dev/zero 映射=  105.90 GiB
+sglang::scheduler_TP1_EP0 pid=14334  RSS=  334.11 GiB  Pss=  191.86 GiB  Private=  144.50 GiB  Shared_Clean=    0.78 GiB  Shared_Dirty=  188.83 GiB  Anonymous=   38.44 GiB  /dev/zero 映射=  105.90 GiB
+sglang::scheduler_TP2_EP1 pid=14335  RSS=  333.99 GiB  Pss=  191.74 GiB  Private=  144.38 GiB  Shared_Clean=    0.78 GiB  Shared_Dirty=  188.83 GiB  Anonymous=   38.32 GiB  /dev/zero 映射=  105.90 GiB
+sglang::scheduler_TP3_EP1 pid=14336  RSS=  334.17 GiB  Pss=  191.92 GiB  Private=  144.55 GiB  Shared_Clean=    0.78 GiB  Shared_Dirty=  188.83 GiB  Anonymous=   38.49 GiB  /dev/zero 映射=  105.90 GiB
+
+整机 free -g:
+               total        used        free      shared  buff/cache   available
+Mem:            2015         231         865         667         918        1105
+Swap:              0           0           0
+
+整机 MemAvailable/free -m:
+               total        used        free      shared  buff/cache   available
+Mem:         2064020      237450      885910      683699      940659     1132105

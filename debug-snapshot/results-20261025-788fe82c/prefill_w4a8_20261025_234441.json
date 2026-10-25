@@ -1,0 +1,24 @@
+{
+ "tag": "w4a8",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16684,
+ "runs": [
+  {
+   "case": "long",
+   "salt": 0,
+   "wall_s": 2.586568832397461,
+   "prompt_tokens": 16688,
+   "tok_s": 6451.790414768157,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "salt": 0,
+   "wall_s": 0.4089202880859375,
+   "prompt_tokens": 13,
+   "tok_s": 31.79103697899175,
+   "completion_tokens": 1
+  }
+ ]
+}
