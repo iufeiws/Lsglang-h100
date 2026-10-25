@@ -365,45 +365,62 @@ def _graph_forward(cache, *, x, topk_ids, topk_weights, buffers: ForwardBuffers,
     return gout_part.view(rows, top_k, -1).sum(dim=1).add_(hits)
 
 
+def _admit_rows(cache: LayerCache, rows: list[int], experts: list[int]) -> None:
+    """Put ``experts`` into ``rows`` (evicting their experts) and enqueue the copies."""
+    device = cache.slot_of.device
+    rows_t = torch.tensor(rows, device=device)
+    new_t = torch.tensor(experts, device=device)
+    old = cache.row_expert[rows_t].long()
+    cache.slot_of[old[old >= 0]] = -1
+    cache.slot_of[new_t] = rows_t.to(torch.int32)
+    cache.row_expert[rows_t] = new_t.to(torch.int32)
+    for row, expert in zip(rows, experts):
+        cache._copy_in(row, expert)
+
+
 def _eager_forward(cache, *, x, topk_ids, topk_weights, params: MoeParams):
-    """Any batch outside a graph: admit every miss, in groups when rows run short."""
+    """Any batch outside a graph: every miss is admitted and computed in CUTLASS.
+
+    Misses first take rows whose expert this batch does not route; the first CUTLASS
+    call then computes every row's routes. Remaining misses (a prefill tail may route
+    every resident expert) cycle through a small pool of the lowest-score rows, one
+    CUTLASS call per pool-sized group of their own routes.
+    """
     ids = topk_ids.long()
     local = ids >= 0
     counts = torch.bincount(ids[local], minlength=cache.num_experts)
     cache.score.mul_(cache.score_decay).add_(counts.to(torch.float32))
     routed = counts > 0
     missing = torch.nonzero(routed & (cache.slot_of < 0)).squeeze(1)
-    missing = missing[torch.argsort(cache.score[missing], descending=True)]
+    missing = missing[torch.argsort(cache.score[missing], descending=True)].tolist()
     holder = cache.row_expert.long()
     victim_key = torch.where(holder >= 0, cache.score[holder.clamp(min=0)], -1.0)
     victim_key = torch.where(routed[holder.clamp(min=0)] & (holder >= 0), float("inf"),
                              victim_key)
-    victims = torch.argsort(victim_key)[: int((victim_key < float("inf")).sum())]
-    missing, victims = missing.tolist(), victims.tolist()
+    free = torch.argsort(victim_key)[: int((victim_key < float("inf")).sum())].tolist()
+    first, rest = missing[: len(free)], missing[len(free):]
+    if first:
+        _admit_rows(cache, free[: len(first)], first)
     skip = cache.num_rows
-    out = None
-    group_size = max(len(victims), 1)
-    for start in range(0, max(len(missing), 1), group_size):
-        group = missing[start:start + group_size]
-        assert not group or victims, "no evictable row: every row's expert is routed"
-        if group:
-            rows_t = torch.tensor(victims[: len(group)], device=x.device)
-            new_t = torch.tensor(group, device=x.device)
-            old = cache.row_expert[rows_t].long()
-            cache.slot_of[old[old >= 0]] = -1
-            cache.slot_of[new_t] = rows_t.to(torch.int32)
-            cache.row_expert[rows_t] = new_t.to(torch.int32)
-            for row, expert in zip(victims, group):
-                cache._copy_in(row, expert)
+
+    def run(experts_mask=None):
         slot = torch.where(local, cache.slot_of[ids.clamp(min=0)], -1).long()
-        if start > 0:
-            # Later groups compute only their own experts; the hits ran with the first.
+        if experts_mask is not None:
+            slot = torch.where(experts_mask[ids.clamp(min=0)] & local, slot, -1)
+        slot_ids = torch.where(slot >= 0, slot, skip).to(torch.int32)
+        return _cutlass(cache, x, slot_ids, topk_weights, params).float()
+
+    out = run()
+    if rest:
+        holder = cache.row_expert.long()
+        row_key = torch.where(holder >= 0, cache.score[holder.clamp(min=0)], -1.0)
+        pool = torch.argsort(row_key)[: max(len(free), cache.copy_row.numel())].tolist()
+        for start in range(0, len(rest), len(pool)):
+            group = rest[start:start + len(pool)]
+            _admit_rows(cache, pool[: len(group)], group)
             in_group = torch.zeros(cache.num_experts, dtype=torch.bool, device=x.device)
             in_group[torch.tensor(group, device=x.device)] = True
-            slot = torch.where(in_group[ids.clamp(min=0)] & local, slot, -1)
-        slot_ids = torch.where(slot >= 0, slot, skip).to(torch.int32)
-        part = _cutlass(cache, x, slot_ids, topk_weights, params).float()
-        out = part if out is None else out.add_(part)
+            out.add_(run(in_group))
     return out
 
 
