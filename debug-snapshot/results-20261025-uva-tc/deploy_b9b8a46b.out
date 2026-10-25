@@ -1,0 +1,5 @@
+OK   kernels/ops/moe/lk_verify_uva.py  md5=0e21f44943eca1e5e5b979e09cd988b4
+OK   srt/layers/moe/fused_moe_triton/layer.py  md5=cb99583cd39bc252f822cd65022b48da
+OK   srt/layers/moe/gpu_expert_cache.py  md5=90ebb23deb9718ca18d53a28292531cc
+--- __pycache__ 残留检查 (应为空) ---
+deploy done: tag=1cf916ebc0 -> b9b8a46bf2

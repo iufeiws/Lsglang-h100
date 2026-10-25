@@ -1,0 +1,11 @@
+### 宽 N 档 64:64:8 / 128:64:8
+gate_up GemmConfig(bn=64, bk=64, num_warps=8) down GemmConfig(bn=128, bk=64, num_warps=8)
+ rows   hit  ms/layer  x20 ms    GB/s
+    6  1.00     1.267   25.33     252
+    6  0.90     4.128   82.56      77
+      tensor-core vs fp32 relative error: 4.16e-06
+   12  1.00     1.772   35.44     271
+   12  0.90     7.586  151.72      72
+      tensor-core vs fp32 relative error: 4.24e-06
+eager rows   hit  ms/layer  x20 ms
+         0  0.90     0.267    5.34

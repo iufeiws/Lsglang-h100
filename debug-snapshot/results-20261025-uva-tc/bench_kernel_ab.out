@@ -1,0 +1,28 @@
+Detected CPU with AMX support
+Loading _lk_moe_C_avx512_amx.so
+Successfully loaded: ['MOEConfigV2', 'MOE_BF16', 'MOE_FP8', 'MOE_WNA16', 'MOE_NVFP4', 'MOE_MXFP4', 'MOE_FP16', 'MOE_FP8_FP16', 'MOE_WNA16_FP16', 'MOE_NVFP4_FP16', 'MOE_MXFP4_FP16', 'get_device_mem_usage', 'pool_stats', 'pool_slot', 'pool_ready_slot', 'pool_snapshot_slot', 'pool_set_det_split', 'pool_wait_fence', 'pool_wait_all_fences', 'pool_verify_sample', 'pool_layer_info', 'pool_capture_pause', 'pool_capture_resume', 'nvme_filler_attach', 'nvme_filler_attach_gather', 'nvme_filler_detach', 'nvme_filler_detach_all', 'nvme_filler_stats', 'nvme_gate']
+   kernel  rows   hit distinct_e  ms/layer   x20 ms     med3
+ old_fp32     6  1.00         34    13.593   271.87   13.593
+ old_fp32     6  0.90         34    14.525   290.50   14.513
+ old_fp32     6  0.00         33    31.415   628.30   31.404
+ old_fp32    12  1.00         52    20.691   413.83   20.686
+ old_fp32    12  0.90         59    24.970   499.40   24.963
+ old_fp32    12  0.00         50    47.266   945.32   47.226
+ old_fp32    24  1.00         77    29.997   599.94   29.995
+ old_fp32    24  0.90        101    43.071   861.42   43.071
+ old_fp32    24  0.00         73    68.843  1376.86   68.835
+ old_fp32    48  1.00        100    38.733   774.66   38.707
+ old_fp32    48  0.90        132    58.034  1160.69   58.023
+ old_fp32    48  0.00         85    80.270  1605.40   80.256
+   new_tc     6  1.00         32     1.607    32.14    1.598
+   new_tc     6  0.90         31     4.108    82.16    4.108
+   new_tc     6  0.00         30    20.344   406.87   20.341
+   new_tc    12  1.00         53     2.619    52.39    2.619
+   new_tc    12  0.90         59     8.174   163.49    8.173
+   new_tc    12  0.00         50    33.861   677.22   33.853
+   new_tc    24  1.00         77     3.703    74.07    3.703
+   new_tc    24  0.90         96    13.587   271.73   13.584
+   new_tc    24  0.00         71    48.048   960.95   48.043
+   new_tc    48  1.00        100     4.888    97.77    4.886
+   new_tc    48  0.90        136    28.474   569.47   28.471
+   new_tc    48  0.00         85    57.523  1150.46   57.519

@@ -1,0 +1,33 @@
+Detected CPU with AMX support
+Loading _lk_moe_C_avx512_amx.so
+Successfully loaded: ['MOEConfigV2', 'MOE_BF16', 'MOE_FP8', 'MOE_WNA16', 'MOE_NVFP4', 'MOE_MXFP4', 'MOE_FP16', 'MOE_FP8_FP16', 'MOE_WNA16_FP16', 'MOE_NVFP4_FP16', 'MOE_MXFP4_FP16', 'get_device_mem_usage', 'pool_stats', 'pool_slot', 'pool_ready_slot', 'pool_snapshot_slot', 'pool_set_det_split', 'pool_wait_fence', 'pool_wait_all_fences', 'pool_verify_sample', 'pool_layer_info', 'pool_capture_pause', 'pool_capture_resume', 'nvme_filler_attach', 'nvme_filler_attach_gather', 'nvme_filler_detach', 'nvme_filler_detach_all', 'nvme_filler_stats', 'nvme_gate']
+   kernel  rows   hit local_routes tiles(est)  ms/layer   x20 ms
+ old_fp32     6  1.00           18 1         7.341   146.82
+ old_fp32     6  0.90           23 1         9.948   198.96
+ old_fp32     6  0.00           15 1        13.523   270.45
+ old_fp32    12  1.00           38 2        12.944   258.88
+ old_fp32    12  0.90           39 2        13.259   265.19
+ old_fp32    12  0.00           35 2        30.580   611.59
+ old_fp32    24  1.00           69 4        21.322   426.43
+ old_fp32    24  0.90           68 4        21.690   433.79
+ old_fp32    24  0.00           69 4        47.225   944.50
+ old_fp32    48  1.00          137 9        29.056   581.12
+ old_fp32    48  0.90          146 9        31.456   629.12
+ old_fp32    48  0.00          144 9        71.059  1421.17
+   new_tc     6  1.00           17 1         0.901    18.02
+   new_tc     6  0.90           18 1         1.427    28.54
+   new_tc     6  0.00           20 1        13.555   271.10
+   new_tc    12  1.00           40 2         1.735    34.71
+   new_tc    12  0.90           29 2         1.567    31.34
+   new_tc    12  0.00           39 2        21.650   433.00
+   new_tc    24  1.00           71 4         2.603    52.06
+   new_tc    24  0.90           75 5         2.970    59.41
+   new_tc    24  0.00           80 5        33.151   663.02
+   new_tc    48  1.00          141 9         3.736    74.72
+   new_tc    48  0.90          141 9         4.221    84.43
+   new_tc    48  0.00          140 9        50.068  1001.35
+--- eager (prefill tail, 主机规划, 仅 new_tc) ---
+   kernel  rows   hit local_routes  ms/layer   x20 ms
+   new_tc   128  0.90          394    14.804   296.08
+   new_tc   256  0.90          763    22.348   446.96
+   new_tc   512  0.90         1507    30.674   613.47

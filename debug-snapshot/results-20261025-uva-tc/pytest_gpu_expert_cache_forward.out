@@ -1,0 +1,15 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+________________ test_hits_and_misses_match_the_reference[True] ________________
+test/manual/layers/test_gpu_expert_cache_forward.py:57: in test_hits_and_misses_match_the_reference
+    cache = LayerCache(layer_id=0, host_tensors=(w13, s13, w2, s2), num_slots=S, device="cuda")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../Lsglang/env/lib/python3.12/site-packages/sglang/srt/layers/moe/gpu_expert_cache.py:139: in __init__
+    self.experts = register_host_experts(w13, s13, w2, s2, device=device)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../Lsglang/env/lib/python3.12/site-packages/sglang/kernels/ops/moe/lk_verify_uva.py:103: in register_host_experts
+    raise RuntimeError(
+E   RuntimeError: cudaHostRegister(98304 bytes) failed: cudaError.???
+=========================== short test summary info ============================
+FAILED test/manual/layers/test_gpu_expert_cache_forward.py::test_hits_and_misses_match_the_reference[True]
+1 failed, 1 passed in 17.31s
