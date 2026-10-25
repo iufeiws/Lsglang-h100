@@ -1,0 +1,20 @@
+### 2026-10-25_21:52:43 start_profile (num_steps=40, activities=GPU)
+Start profiling.
+
+### 2026-10-25_21:52:43 驱动流量: 单流 bench k=1 mt=1000 temp=0.7
+  "vram_max_mib": {
+    "gpu4": 78052,
+    "gpu5": 78126,
+    "gpu6": 78126,
+    "gpu7": 77786
+  }
+}
+[2026-10-25T21:53:03+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_61d60cfa/bench_61d60cfa_prof_20261025_215244.json
+### 2026-10-25_21:53:03 等 trace 落盘
+total 45444
+drwxr-xr-x 1 wangyf wangyf      336 Oct 25 21:52 .
+drwxr-xr-x 1 wangyf wangyf     1332 Oct 25 21:53 ..
+-rw-rw-r-- 1 wangyf wangyf 11628993 Oct 25 21:52 1792936363.6770256-TP-0-EP-0.trace.json.gz
+-rw-rw-r-- 1 wangyf wangyf 11655093 Oct 25 21:52 1792936363.6770256-TP-1-EP-0.trace.json.gz
+-rw-rw-r-- 1 wangyf wangyf 11621063 Oct 25 21:52 1792936363.6770256-TP-2-EP-1.trace.json.gz
+-rw-rw-r-- 1 wangyf wangyf 11619190 Oct 25 21:52 1792936363.6770256-TP-3-EP-1.trace.json.gz

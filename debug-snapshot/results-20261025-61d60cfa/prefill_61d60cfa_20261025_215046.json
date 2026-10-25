@@ -1,0 +1,24 @@
+{
+ "tag": "61d60cfa",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16684,
+ "runs": [
+  {
+   "case": "long",
+   "salt": 0,
+   "wall_s": 2.456470251083374,
+   "prompt_tokens": 16688,
+   "tok_s": 6793.48752244816,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "salt": 0,
+   "wall_s": 0.46520423889160156,
+   "prompt_tokens": 13,
+   "tok_s": 27.944715273820115,
+   "completion_tokens": 1
+  }
+ ]
+}
