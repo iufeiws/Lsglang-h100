@@ -178,6 +178,13 @@ def get_gpu_expert_cache_slots() -> int:
     return get_int_env_var("LK_GPU_CACHE_SLOTS", 0)
 
 
+def get_gpu_expert_cache_staging() -> int:
+    # VRAM rows of LK_GPU_CACHE_SLOTS reserved per layer for one forward's missed
+    # experts (copied in at PCIe speed, computed with the hits); beyond them a graph
+    # forward computes misses straight over UVA. Arbitrary default; not tuned.
+    return get_int_env_var("LK_GPU_CACHE_STAGING", 4)
+
+
 def get_gpu_expert_cache_policy() -> dict:
     # Residency thread knobs. Defaults are a first guess, not tuned on H100.
     return dict(

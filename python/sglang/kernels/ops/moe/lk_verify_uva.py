@@ -540,29 +540,99 @@ def launch_draft_miss_uva(
 
 
 @triton.jit
-def _route_to_slots_kernel(
-    ids_ptr, slot_of_ptr, slot_ids_ptr, miss_tab_ptr, hist_ptr, n, miss_id,
-    BLOCK: tl.constexpr,
+def _assign_slots_kernel(
+    ids_ptr,
+    slot_of_ptr,
+    mark_ptr,
+    staging_expert_ptr,
+    slot_ids_ptr,
+    miss_tab_ptr,
+    hist_ptr,
+    n,
+    num_experts,
+    num_slots,
+    num_staging,
+    BLOCK_S: tl.constexpr,
+    BLOCK_E: tl.constexpr,
+    BLOCK_P: tl.constexpr,
 ):
-    s = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    s = tl.arange(0, BLOCK_S)
     live = s < n
     expert = tl.load(ids_ptr + s, mask=live, other=-1)
     local = live & (expert >= 0)
     slot = tl.load(slot_of_ptr + expert, mask=local, other=-1)
-    tl.store(slot_ids_ptr + s, tl.where(slot >= 0, slot, miss_id), mask=live)
-    tl.store(miss_tab_ptr + s, slot, mask=live)
+    miss = local & (slot < 0)
+    e = tl.arange(0, BLOCK_E)
+    in_e = e < num_experts
+    p = tl.arange(0, BLOCK_P)
+    tl.store(mark_ptr + e, 0, mask=in_e)
+    tl.store(staging_expert_ptr + p, -1, mask=p < num_staging)
+    tl.debug_barrier()
+    tl.store(mark_ptr + expert, 1, mask=miss)
     tl.atomic_add(hist_ptr + expert, 1, mask=local)
+    tl.debug_barrier()
+    marked = tl.load(mark_ptr + e, mask=in_e, other=0, volatile=True)
+    # Missed experts take staging slots in expert order; the rest overflow to UVA.
+    rank = tl.cumsum(marked, 0) - marked
+    staged = (marked > 0) & (rank < num_staging)
+    tl.store(staging_expert_ptr + rank, e, mask=staged)
+    tl.store(mark_ptr + e, tl.where(staged, rank, -1), mask=in_e)
+    tl.debug_barrier()
+    stage = tl.load(mark_ptr + expert, mask=miss, other=-1, volatile=True)
+    overflow = miss & (stage < 0)
+    slot_id = tl.where(slot >= 0, slot,
+                       tl.where(stage >= 0, num_slots + stage, num_slots + num_staging))
+    tl.store(slot_ids_ptr + s, slot_id, mask=live)
+    tl.store(miss_tab_ptr + s, tl.where(overflow, -1, 0), mask=live)
 
 
-def route_to_slots(*, topk_ids, slot_of, slot_ids, miss_tab, hist, miss_id: int) -> None:
-    """Map local expert ids to VRAM slots; graph capturable.
+def assign_slots(*, topk_ids, slot_of, mark, staging_expert, slot_ids, miss_tab, hist,
+                 num_slots: int, num_staging: int) -> None:
+    """Route each local expert to its VRAM slot or a staging slot; graph capturable.
 
-    ``slot_ids`` gets the slot of each route, or ``miss_id`` for a route not in a slot
-    (non-resident, or -1 for an EP-remote expert). ``miss_tab`` gets the slot or -1,
-    the ``slot_tab`` of :func:`launch_draft_miss_uva`. ``hist`` [E] counts every
-    local route, resident or not.
+    ``slot_ids`` (the CUTLASS ids) gets the slot, ``num_slots + j`` for the j-th
+    missed expert while staging slots last, else ``num_slots + num_staging`` (out of
+    range: skipped; also for EP-remote -1). ``staging_expert`` [num_staging] gets
+    the expert to copy into each staging slot or -1. ``miss_tab`` is -1 only for
+    routes left to the UVA kernel (its ``slot_tab``). ``hist`` counts local routes.
     """
     n = topk_ids.numel()
-    block = 1024
-    _route_to_slots_kernel[(triton.cdiv(n, block),)](
-        topk_ids, slot_of, slot_ids, miss_tab, hist, n, miss_id, BLOCK=block)
+    num_experts = slot_of.numel()
+    _assign_slots_kernel[(1,)](
+        topk_ids, slot_of, mark, staging_expert, slot_ids, miss_tab, hist,
+        n, num_experts, num_slots, num_staging,
+        BLOCK_S=triton.next_power_of_2(max(n, 2)),
+        BLOCK_E=triton.next_power_of_2(num_experts),
+        BLOCK_P=triton.next_power_of_2(max(num_staging, 2)),
+    )
+
+
+@triton.jit
+def _stage_copy_kernel(staging_expert_ptr, src_ptrs, dst_ptrs, words_ptr, BLOCK: tl.constexpr):
+    p = tl.program_id(0)
+    t = tl.program_id(1)
+    expert = tl.load(staging_expert_ptr + p)
+    if expert < 0:
+        return
+    words = tl.load(words_ptr + t)
+    start = tl.program_id(2) * BLOCK
+    if start >= words:
+        return
+    off = start + tl.arange(0, BLOCK)
+    mask = off < words
+    src = tl.cast(tl.load(src_ptrs + t), tl.pointer_type(tl.int64)) + expert.to(tl.int64) * words
+    dst = tl.cast(tl.load(dst_ptrs + t), tl.pointer_type(tl.int64)) + p * words
+    tl.store(dst + off, tl.load(src + off, mask=mask), mask=mask)
+
+
+def stage_copy(*, staging_expert, src_ptrs, dst_ptrs, words, num_staging: int,
+               max_words: int) -> None:
+    """Copy each staged expert's blocks (host, over UVA) into its staging slot.
+
+    Tensor ``t`` of expert ``e`` is ``words[t]`` int64 words at ``src_ptrs[t]`` +
+    e * words[t]; staging slot ``p`` is at ``dst_ptrs[t]`` + p * words[t]. Wide
+    coalesced reads keep PCIe saturated, unlike the GEMM kernels' 32 B row reads.
+    """
+    block = 2048
+    _stage_copy_kernel[(num_staging, words.numel(), triton.cdiv(max_words, block))](
+        staging_expert, src_ptrs, dst_ptrs, words, BLOCK=block)

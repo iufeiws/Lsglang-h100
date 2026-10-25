@@ -16,9 +16,9 @@ is its slot overwritten; the incoming expert is mapped after its copy has landed
 The thread issues CUDA calls only under ``park()``, which graph capture and graph
 replay launch also hold (the same rule as the lk_moe pump), and starts swapping only
 after the first replay, i.e. once every capture and its warmups are done. Eager
-forwards (prefill tails of late layers) read the same table; their streams join the
-fence, and a launch racing an unmap either precedes the fence's event record or
-starts after the table push has landed.
+forwards (prefill tails of late layers) hold ``park()`` from reading ``slot_of`` to
+their last launch, since they sync with the host in between; their streams join the
+fence, so a fence recorded afterwards covers every launch that used the old table.
 """
 
 from __future__ import annotations
@@ -47,19 +47,16 @@ def park():
         yield
 
 
-def note_replay(stream: torch.cuda.Stream) -> None:
-    """Record a graph-replay stream; call inside ``park()`` right before the launch."""
+def _add_stream(stream: torch.cuda.Stream) -> None:
+    """Fence ``stream`` before slot reuse; the caller holds ``_PARK_LOCK``."""
     if not any(s == stream for s in _replay_streams):
         _replay_streams.append(stream)
+
+
+def note_replay(stream: torch.cuda.Stream) -> None:
+    """Record a graph-replay stream; call inside ``park()`` right before the launch."""
+    _add_stream(stream)
     _first_replay.set()
-
-
-def note_eager_stream(stream: torch.cuda.Stream) -> None:
-    """Record a stream that runs cache reads outside a graph; no park() needed."""
-    if not any(s == stream for s in _replay_streams):
-        with _PARK_LOCK:
-            if not any(s == stream for s in _replay_streams):
-                _replay_streams.append(stream)
 
 
 def plan_swaps(
@@ -127,7 +124,8 @@ def _build_slot_source(host_tensors, *, device, chunk: int = 16):
 class LayerCache:
     """VRAM slots, the expert-to-slot table and route counts of one layer."""
 
-    def __init__(self, *, layer_id: int, host_tensors, num_slots: int, device):
+    def __init__(self, *, layer_id: int, host_tensors, num_slots: int, num_staging: int,
+                 device):
         # Lazy: park() must stay importable without the lk_moe wheel.
         from sglang.kernels.ops.moe.lk_verify_uva import register_host_experts
 
@@ -135,14 +133,27 @@ class LayerCache:
         self.layer_id = layer_id
         self.num_experts = w13.shape[0]
         self.num_slots = min(num_slots, self.num_experts)
+        self.num_staging = num_staging
         # Checkpoint layout, read in place over UVA for routes without a slot.
         self.experts = register_host_experts(w13, s13, w2, s2, device=device)
         self._host = host_tensors
         self._slot_source = _build_slot_source(host_tensors, device=device)
+        # Rows [num_slots, num_slots + num_staging) take one forward's missed experts;
+        # the residency thread never touches them.
         self.slabs = [
-            torch.empty((self.num_slots, *t.shape[1:]), dtype=torch.uint8, device=device)
+            torch.empty((self.num_slots + num_staging, *t.shape[1:]), dtype=torch.uint8,
+                        device=device)
             for t in self._slot_source
         ]
+        words = [t[0].numel() // 8 for t in self._slot_source]
+        assert all(t[0].numel() % 8 == 0 for t in self._slot_source)
+        self.max_words = max(words)
+        self.stage_words = torch.tensor(words, dtype=torch.int64, device=device)
+        # Pinned (cudaHostAlloc) host memory has the same address on the device under UVA.
+        self.stage_src = torch.tensor([t.data_ptr() for t in self._slot_source],
+                                      dtype=torch.int64, device=device)
+        self.stage_dst = torch.tensor([slab[self.num_slots].data_ptr() for slab in self.slabs],
+                                      dtype=torch.int64, device=device)
         self.slot_owner = [-1] * self.num_slots
         # Pinned mirror of slot_of; written only while no H2D from it is pending.
         self._slot_of_host = torch.full((self.num_experts,), -1, dtype=torch.int32).pin_memory()
@@ -163,6 +174,7 @@ class LayerCache:
         return sum(t.numel() for t in (*self._host, *self._slot_source))
 
     def _copy_in(self, slot: int, expert: int) -> None:
+        """Enqueue the H2D copy of ``expert`` into slab row ``slot`` on the current stream."""
         for slab, source in zip(self.slabs, self._slot_source):
             slab[slot].copy_(source[expert], non_blocking=True)
 
@@ -307,7 +319,8 @@ class CacheManager:
 class ForwardBuffers:
     """Process-wide buffers of the graph path; layers run one after another."""
 
-    def __init__(self, *, num_experts, max_rows, top_k, hidden, intermediate, device):
+    def __init__(self, *, num_experts, max_rows, top_k, hidden, intermediate, num_staging,
+                 device):
         from sglang.kernels.ops.moe.lk_verify_uva import UvaScratch
 
         routes = max_rows * top_k
@@ -318,18 +331,20 @@ class ForwardBuffers:
         self.gout_part = torch.zeros((routes, hidden), dtype=torch.float32, device=device)
         self.slot_ids = torch.zeros(routes, dtype=torch.int32, device=device)
         self.miss_tab = torch.zeros(routes, dtype=torch.int32, device=device)
+        self.mark = torch.zeros(num_experts, dtype=torch.int32, device=device)
+        self.staging_expert = torch.zeros(max(num_staging, 1), dtype=torch.int32, device=device)
         self.side_stream = torch.cuda.Stream(device=device)
 
 
 class MoeParams(msgspec.Struct, frozen=True):
-    swiglu_limit: Optional[torch.Tensor]  # [S] fp32 for the CUTLASS kernel, or None
+    swiglu_limit: Optional[torch.Tensor]  # [slots + staging] fp32 for CUTLASS, or None
     limit: float  # the same clamp for the UVA kernel; 0 disables it
     tp_size: int
     tp_rank: int
 
 
-def _cutlass_hits(cache: LayerCache, x, slot_ids, weights, params: MoeParams):
-    """Routes with a slot; ``slot_ids == num_slots`` marks the others, which EP skips."""
+def _cutlass(cache: LayerCache, x, slot_ids, weights, params: MoeParams):
+    """Routes whose id is a slab row; ``num_slots + num_staging`` marks a skipped route."""
     from flashinfer.fused_moe import cutlass_fused_moe
     from flashinfer.fused_moe.core import ActivationType
 
@@ -349,7 +364,7 @@ def _cutlass_hits(cache: LayerCache, x, slot_ids, weights, params: MoeParams):
         swiglu_limit=params.swiglu_limit,
         tp_size=params.tp_size,
         tp_rank=params.tp_rank,
-        # Slots are rank 0's experts of two ranks; id num_slots belongs to rank 1.
+        # Slab rows are rank 0's experts of two ranks; the skip id belongs to rank 1.
         ep_size=2,
         ep_rank=0,
         use_w4_group_scaling=True,
@@ -361,14 +376,27 @@ def _cutlass_hits(cache: LayerCache, x, slot_ids, weights, params: MoeParams):
     return out
 
 
-def _forward_rows(cache, *, x, topk_ids, topk_weights, slot_ids, miss_tab, gout_part,
-                  scratch, side_stream, params: MoeParams, eager_plan: bool):
-    from sglang.kernels.ops.moe.lk_verify_uva import launch_draft_miss_uva, route_to_slots
+def _graph_forward(cache, *, x, topk_ids, topk_weights, buffers: ForwardBuffers,
+                   params: MoeParams):
+    """Fixed launches: slot hits and up to ``num_staging`` missed experts in CUTLASS,
+    any further misses in the UVA kernel on a side stream."""
+    from sglang.kernels.ops.moe.lk_verify_uva import (
+        assign_slots,
+        launch_draft_miss_uva,
+        stage_copy,
+    )
 
     rows, top_k = topk_ids.shape
-    route_to_slots(topk_ids=topk_ids, slot_of=cache.slot_of, slot_ids=slot_ids,
-                   miss_tab=miss_tab, hist=cache.hist, miss_id=cache.num_slots)
+    n = rows * top_k
+    assert n <= buffers.slot_ids.numel(), (rows, buffers.max_rows)
+    slot_ids, miss_tab = buffers.slot_ids[:n], buffers.miss_tab[:n]
+    gout_part = buffers.gout_part[:n]
+    assign_slots(topk_ids=topk_ids, slot_of=cache.slot_of, mark=buffers.mark,
+                 staging_expert=buffers.staging_expert, slot_ids=slot_ids,
+                 miss_tab=miss_tab, hist=cache.hist, num_slots=cache.num_slots,
+                 num_staging=cache.num_staging)
     main = torch.cuda.current_stream()
+    side_stream = buffers.side_stream
     side_stream.wait_stream(main)
     with torch.cuda.stream(side_stream):
         # Reads only the host checkpoint copy, so slot swaps need not fence it.
@@ -376,11 +404,45 @@ def _forward_rows(cache, *, x, topk_ids, topk_weights, slot_ids, miss_tab, gout_
         launch_draft_miss_uva(
             hidden_states=x, topk_ids=topk_ids, topk_weights=topk_weights,
             slot_tab=miss_tab, gout_part=gout_part, rows_per_request=1,
-            host=cache.experts, scratch=scratch, activation=0, alpha=1.702,
-            limit=params.limit, include_first_row=True, eager_plan=eager_plan)
-    hits = _cutlass_hits(cache, x, slot_ids.view(rows, top_k), topk_weights, params)
+            host=cache.experts, scratch=buffers.scratch, activation=0, alpha=1.702,
+            limit=params.limit, include_first_row=True)
+    if cache.num_staging > 0:
+        stage_copy(staging_expert=buffers.staging_expert, src_ptrs=cache.stage_src,
+                   dst_ptrs=cache.stage_dst, words=cache.stage_words,
+                   num_staging=cache.num_staging, max_words=cache.max_words)
+    hits = _cutlass(cache, x, slot_ids.view(rows, top_k), topk_weights, params)
     main.wait_stream(side_stream)
     return gout_part.view(rows, top_k, -1).sum(dim=1).add_(hits)
+
+
+def _eager_forward(cache, *, x, topk_ids, topk_weights, params: MoeParams):
+    """Any batch outside a graph: misses copied in groups of ``num_staging``, all in CUTLASS.
+
+    The caller holds ``park()``: host syncs separate reading ``slot_of`` from the launches.
+    """
+    _add_stream(torch.cuda.current_stream())
+    ids = topk_ids.long()
+    local = ids >= 0
+    slot = torch.where(local, cache.slot_of[ids.clamp(min=0)], -1)
+    cache.hist.add_(torch.bincount(ids[local], minlength=cache.num_experts).to(torch.int32))
+    missing = torch.unique(ids[local & (slot < 0)]).tolist()
+    group_size = max(cache.num_staging, 1)
+    skip = cache.num_slots + cache.num_staging
+    out = None
+    for start in range(0, max(len(missing), 1), group_size):
+        group = missing[start:start + group_size]
+        assert not group or cache.num_staging > 0, "misses need LK_GPU_CACHE_STAGING > 0"
+        stage_of = torch.full((cache.num_experts,), -1, dtype=torch.long, device=x.device)
+        for j, expert in enumerate(group):
+            cache._copy_in(cache.num_slots + j, expert)
+            stage_of[expert] = j
+        staged = stage_of[ids.clamp(min=0)]
+        slot_ids = torch.where(local & (staged >= 0), cache.num_slots + staged, skip)
+        if start == 0:
+            slot_ids = torch.where(slot >= 0, slot, slot_ids)
+        part = _cutlass(cache, x, slot_ids.to(torch.int32), topk_weights, params).float()
+        out = part if out is None else out.add_(part)
+    return out
 
 
 def cache_forward(cache: LayerCache, *, hidden_states, topk_ids, topk_weights,
@@ -389,28 +451,9 @@ def cache_forward(cache: LayerCache, *, hidden_states, topk_ids, topk_weights,
     x = hidden_states.contiguous()
     topk_ids = topk_ids.to(torch.int32).contiguous()
     topk_weights = topk_weights.to(torch.float32).contiguous()
-    rows, top_k = topk_ids.shape
     if graph:
-        n = rows * top_k
-        assert n <= buffers.slot_ids.numel(), (rows, buffers.max_rows)
-        return _forward_rows(
-            cache, x=x, topk_ids=topk_ids, topk_weights=topk_weights,
-            slot_ids=buffers.slot_ids[:n], miss_tab=buffers.miss_tab[:n],
-            gout_part=buffers.gout_part[:n], scratch=buffers.scratch,
-            side_stream=buffers.side_stream, params=params, eager_plan=False)
-    note_eager_stream(torch.cuda.current_stream())
-    out = torch.empty((rows, x.shape[1]), dtype=torch.float32, device=x.device)
-    # Bounds the transient fp32 scratch to ~0.3 GiB (gout_part + mid) per chunk.
-    chunk = 2048
-    for start in range(0, rows, chunk):
-        stop = min(rows, start + chunk)
-        n = (stop - start) * top_k
-        ids = topk_ids[start:stop]
-        out[start:stop] = _forward_rows(
-            cache, x=x[start:stop], topk_ids=ids, topk_weights=topk_weights[start:stop],
-            slot_ids=torch.empty(n, dtype=torch.int32, device=x.device),
-            miss_tab=torch.empty(n, dtype=torch.int32, device=x.device),
-            gout_part=torch.empty((n, x.shape[1]), dtype=torch.float32, device=x.device),
-            scratch=buffers.scratch, side_stream=buffers.side_stream, params=params,
-            eager_plan=True)
-    return out
+        return _graph_forward(cache, x=x, topk_ids=topk_ids, topk_weights=topk_weights,
+                              buffers=buffers, params=params)
+    with park():
+        return _eager_forward(cache, x=x, topk_ids=topk_ids, topk_weights=topk_weights,
+                              params=params)

@@ -39,46 +39,60 @@ def _reference(x, ids, weights, w13, s13, w2, s2, limit):
     return out
 
 
-@pytest.mark.parametrize("graph", [False, True])
-def test_hits_and_misses_match_the_reference(graph):
-    from sglang.srt.layers.moe.gpu_expert_cache import (
-        ForwardBuffers,
-        LayerCache,
-        MoeParams,
-        cache_forward,
-    )
+E, H, I, K, ROWS, S, P, LIMIT = 12, 512, 256, 4, 9, 6, 2, 10.0
+
+
+@pytest.fixture(scope="module")
+def setup():
+    """One cache for the module: registered host memory is never unregistered, so a
+    second cache in this process could land on the same addresses (CUDA error 712)."""
+    from sglang.srt.layers.moe.gpu_expert_cache import ForwardBuffers, LayerCache, MoeParams
 
     torch.manual_seed(3)
-    E, H, I, k, rows, S, limit = 12, 512, 256, 4, 9, 7, 10.0
-    w13 = torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8)
-    s13 = torch.randint(119, 123, (E, 2 * I, H // 32), dtype=torch.uint8)
-    w2 = torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8)
-    s2 = torch.randint(119, 123, (E, H, I // 32), dtype=torch.uint8)
-    cache = LayerCache(layer_id=0, host_tensors=(w13, s13, w2, s2), num_slots=S, device="cuda")
-    ids = torch.stack([torch.randperm(E)[:k] for _ in range(rows)]).int()
-    ids[::2, -1] = -1  # EP-remote routes
-    x = torch.randn(rows, H).bfloat16()
-    weights = torch.rand(rows, k)
-    expected = _reference(x, ids, weights, w13, s13, w2, s2, limit)
-    buffers = ForwardBuffers(num_experts=E, max_rows=rows, top_k=k, hidden=H,
-                             intermediate=I, device="cuda")
-    params = MoeParams(swiglu_limit=torch.full((S,), limit, device="cuda"), limit=limit,
+    experts = (
+        torch.randint(0, 256, (E, 2 * I, H // 2), dtype=torch.uint8),
+        torch.randint(119, 123, (E, 2 * I, H // 32), dtype=torch.uint8),
+        torch.randint(0, 256, (E, H, I // 2), dtype=torch.uint8),
+        torch.randint(119, 123, (E, H, I // 32), dtype=torch.uint8),
+    )
+    cache = LayerCache(layer_id=0, host_tensors=experts, num_slots=S, num_staging=P,
+                       device="cuda")
+    buffers = ForwardBuffers(num_experts=E, max_rows=ROWS, top_k=K, hidden=H,
+                             intermediate=I, num_staging=P, device="cuda")
+    params = MoeParams(swiglu_limit=torch.full((S + P,), LIMIT, device="cuda"), limit=LIMIT,
                        tp_size=1, tp_rank=0)
+    return experts, cache, buffers, params
+
+
+@pytest.mark.parametrize("graph", [False, True])
+def test_hits_staged_and_overflow_misses_match_the_reference(setup, graph):
+    from sglang.srt.layers.moe.gpu_expert_cache import cache_forward
+
+    experts, cache, buffers, params = setup
+    ids = torch.stack([torch.randperm(E)[:K] for _ in range(ROWS)]).int()
+    ids[::2, -1] = -1  # EP-remote routes
+    x = torch.randn(ROWS, H).bfloat16()
+    weights = torch.rand(ROWS, K)
+    expected = _reference(x, ids, weights, *experts, LIMIT)
+    tol = dict(rtol=3e-2, atol=3e-2 * expected.abs().max().item())
 
     def run():
+        hist0 = cache.hist.clone()
         out = cache_forward(cache, hidden_states=x.cuda(), topk_ids=ids.cuda(),
                             topk_weights=weights.cuda(), buffers=buffers, params=params,
                             graph=graph)
         torch.cuda.synchronize()
+        local = ids.flatten()[ids.flatten() >= 0].long()
+        assert torch.equal((cache.hist - hist0).cpu(), torch.bincount(local, minlength=E).int())
         return out.cpu()
 
-    # Cold start holds experts 0..S-1, so routes to S..E-1 take the UVA path.
-    assert (ids >= S).any() and ((ids >= 0) & (ids < S)).any()
-    mixed = run()
-    torch.testing.assert_close(mixed, expected, rtol=3e-2, atol=3e-2 * expected.abs().max().item())
-    # Unmapping every slot must not change the result: hit and miss paths agree.
+    slot_of = cache.slot_of.clone()
+    # Cold start holds experts 0..S-1; the other E-S > P experts are staged or overflow.
+    assert len(set(ids[(ids >= S)].tolist())) > P
+    torch.testing.assert_close(run(), expected, **tol)
+    # With every slot unmapped all routes are misses: the paths must agree.
     cache.slot_of.fill_(-1)
-    all_miss = run()
-    torch.testing.assert_close(all_miss, expected, rtol=3e-2, atol=3e-2 * expected.abs().max().item())
-    assert torch.equal(cache.hist.cpu(), 2 * torch.bincount(
-        ids.flatten()[ids.flatten() >= 0].long(), minlength=E).int())
+    try:
+        torch.testing.assert_close(run(), expected, **tol)
+    finally:
+        cache.slot_of.copy_(slot_of)

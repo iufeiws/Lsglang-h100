@@ -110,6 +110,7 @@ logger = logging.getLogger(__name__)
 from sglang.srt.utils.lk_moe_env import (
     get_gpu_expert_cache_policy,
     get_gpu_expert_cache_slots,
+    get_gpu_expert_cache_staging,
     get_lk_verify_uva_provider,
     is_lk_verify_uva_enabled,
 )
@@ -2438,18 +2439,22 @@ class FusedMoE(torch.nn.Module):
                 "LK_GPU_CACHE_SLOTS with LK_POOL_SLOTS>0 keeps two VRAM expert caches; "
                 "set LK_POOL_SLOTS=0")
         device = torch.cuda.current_device()
+        # Staging rows come out of the same VRAM budget as the cache slots.
+        staging = min(get_gpu_expert_cache_staging(), self.gpu_cache_slots - 1)
         cache = LayerCache(layer_id=self.layer_id, host_tensors=tensors,
-                           num_slots=self.gpu_cache_slots, device=device)
+                           num_slots=self.gpu_cache_slots - staging, num_staging=staging,
+                           device=device)
         buffers = FusedMoE.gpu_cache_buffers
         if buffers is None or buffers.max_rows < self.max_num_seqs:
             FusedMoE.gpu_cache_buffers = ForwardBuffers(
                 num_experts=cache.num_experts, max_rows=self.max_num_seqs,
                 top_k=self.top_k, hidden=cache.experts.hidden,
-                intermediate=cache.experts.intermediate, device=device)
+                intermediate=cache.experts.intermediate, num_staging=staging,
+                device=device)
         limit = None if self.swiglu_limit is None else float(self.swiglu_limit)
         self._gpu_cache_params = MoeParams(
             swiglu_limit=None if limit is None else torch.full(
-                (cache.num_slots,), limit, dtype=torch.float32, device=device),
+                (cache.num_slots + staging,), limit, dtype=torch.float32, device=device),
             limit=0.0 if limit is None else limit,
             tp_size=self.moe_tp_size,
             tp_rank=self.moe_tp_rank,
@@ -2460,10 +2465,10 @@ class FusedMoE(torch.nn.Module):
         self._verify_uva_tensors = tensors
         slot_bytes = sum(t[0].numel() for t in tensors)
         logger.info(
-            "LK_GPU_CACHE_SLOTS: layer %s: %d VRAM slots (%.2f GiB), %d experts pinned "
-            "on host (%.2f GiB, checkpoint + slot layouts)", self.layer_id,
-            cache.num_slots, cache.num_slots * slot_bytes / 2**30, cache.num_experts,
-            cache.host_bytes() / 2**30)
+            "LK_GPU_CACHE_SLOTS: layer %s: %d VRAM slots + %d staging (%.2f GiB), %d "
+            "experts pinned on host (%.2f GiB, checkpoint + slot layouts)", self.layer_id,
+            cache.num_slots, staging, (cache.num_slots + staging) * slot_bytes / 2**30,
+            cache.num_experts, cache.host_bytes() / 2**30)
 
     def _gpu_cache_forward(self, hidden_states, topk_weights, topk_ids):
         from sglang.srt.layers.moe.gpu_expert_cache import cache_forward
