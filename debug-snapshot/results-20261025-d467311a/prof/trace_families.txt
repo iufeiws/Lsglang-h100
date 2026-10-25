@@ -1,0 +1,12 @@
+profile 覆盖步数 ≈ 39.1 (由 _gate_up_kernel 调用数 / 20 层推出)
+GPU 累计 1437.2 ms ⇒ 36.71 ms/步 (含多流重叠)
+family                                 calls/step   ms/step      %
+allreduce_fusion                             89.7     18.34   50.0
+UVA miss kernel gate_up                      20.0      3.26    8.9
+cutlass_moe (resident+cache hits)            87.7      2.86    7.8
+deep_gemm fp8                               236.5      2.25    6.1
+UVA miss kernel down                         20.0      1.59    4.3
+attention (sparse MLA)                       86.7      0.80    2.2
+cutlass work-tile map / finalize            175.4      0.80    2.2
+route_to_slots                               20.4      0.08    0.2
+(其它所有 kernel)                              2336.1      6.72   18.3

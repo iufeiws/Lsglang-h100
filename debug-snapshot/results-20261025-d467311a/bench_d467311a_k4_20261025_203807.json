@@ -1,0 +1,55 @@
+{
+  "tag": "d467311a_k4",
+  "started": "2026-10-25T20:38:29+08:00",
+  "k": 4,
+  "max_tokens": 500,
+  "temperature": 0.7,
+  "prompt_uniq": 4,
+  "wall_s": 21.7787823677063,
+  "n_ok": 4,
+  "n_err": 0,
+  "errors": [],
+  "ttft": {
+    "p50": 2.2119431495666504,
+    "p10": 1.9681129455566406,
+    "p90": 2.213458776473999,
+    "mean": 2.0908250212669373,
+    "n": 4
+  },
+  "decode_tok_s": {
+    "p50": 28.555758298412425,
+    "p10": 25.193116071196535,
+    "p90": 29.150534256664876,
+    "mean": 27.735343265431375,
+    "n": 4
+  },
+  "ms_per_step": {
+    "p50": 35.66083974972039,
+    "p10": 34.304688593189795,
+    "p90": 39.693382794489125,
+    "mean": 36.169529438974386,
+    "n": 4
+  },
+  "total_tok_s": {
+    "p50": 25.39721046699045,
+    "p10": 22.95949622042593,
+    "p90": 26.195939721278414,
+    "mean": 24.885449576068087,
+    "n": 4
+  },
+  "sum_completion_tokens": 2000,
+  "note": "decode tok/s 用 usage.completion_tokens 计; SSE 事件计数见 events 列 (会低估 accept-len 倍)",
+  "overlap_window": {
+    "window_s": 16.87367272377014,
+    "tokens": 1871.988420569245,
+    "agg_tok_s": 110.94137306172549
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/bench_d467311a_k4_20261025_203807.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_d467311a/bench_d467311a_k4_20261025_203807.csv",
+  "vram_max_mib": {
+    "gpu4": 78042,
+    "gpu5": 78136,
+    "gpu6": 78136,
+    "gpu7": 77776
+  }
+}

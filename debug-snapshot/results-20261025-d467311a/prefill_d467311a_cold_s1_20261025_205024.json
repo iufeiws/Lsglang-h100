@@ -1,0 +1,24 @@
+{
+ "tag": "d467311a_cold_s1",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16691,
+ "runs": [
+  {
+   "case": "long",
+   "salt": 11,
+   "wall_s": 2.7267966270446777,
+   "prompt_tokens": 16695,
+   "tok_s": 6122.568817350403,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "salt": 11,
+   "wall_s": 0.6891229152679443,
+   "prompt_tokens": 13,
+   "tok_s": 18.864559154799473,
+   "completion_tokens": 1
+  }
+ ]
+}
