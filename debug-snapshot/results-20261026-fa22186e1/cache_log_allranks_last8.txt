@@ -1,0 +1,8 @@
+[2026-10-26 05:51:27 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 05:51:27 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 05:51:46 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 05:51:46 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 05:51:57 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 05:51:57 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 05:52:16 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 05:52:16 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0

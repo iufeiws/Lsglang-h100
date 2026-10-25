@@ -1,0 +1,24 @@
+{
+ "tag": "E2E",
+ "block_tokens": 388,
+ "reps": 43,
+ "prompt_tokens_local_count": 16684,
+ "runs": [
+  {
+   "case": "long",
+   "salt": 0,
+   "wall_s": 1.7461645603179932,
+   "prompt_tokens": 16688,
+   "tok_s": 9556.945765157985,
+   "completion_tokens": 1
+  },
+  {
+   "case": "short",
+   "salt": 0,
+   "wall_s": 0.29308509826660156,
+   "prompt_tokens": 13,
+   "tok_s": 44.35571810674146,
+   "completion_tokens": 1
+  }
+ ]
+}

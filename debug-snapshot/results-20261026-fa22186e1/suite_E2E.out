@@ -1,0 +1,54 @@
+### 2026-10-26_05:49:38 轮次=E2E  serve 日志=/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_052825.log
+### 生效快照 /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.effective.20261026_052825.conf 里的缓存键:
+export LK_GPU_CACHE_MAX_COPY=8
+export LK_GPU_CACHE_PRECISION=fp8
+export LK_GPU_CACHE_SLOTS=108
+# (空) LK_GPU_CACHE_SCORE_DECAY
+#   LK_GPU_CACHE_SLOTS: layer
+### 2026-10-26_05:49:38 1/5 纯 prefill (单 prompt ~17k token, max_tokens=1; 服务空闲)
+[transformers] You are using a model of type `deepseek_v41` to instantiate a model of type ``. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+ long: prompt_tokens=16688 wall=1.746s prefill=9556.9 tok/s
+short: prompt_tokens=13 wall=0.293s prefill=44.4 tok/s
+json: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_fa22186e1/prefill_E2E_20261026_054954.json
+### 2026-10-26_05:49:55 2/5 单流 bench k=1 mt=1000 temp=0.7
+  "vram_max_mib": {
+    "gpu4": 78030,
+    "gpu5": 78064,
+    "gpu6": 78064,
+    "gpu7": 77744
+  }
+}
+[2026-10-26T05:50:02+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_fa22186e1/bench_E2E_single_20261026_054955.json
+### 2026-10-26_05:50:02 3/5 复述 recall_margin n=50 (贪心+logprob)
+   49: OK   0.56s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   50: OK   0.56s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+
+不同输出种类: 1  多数输出 x50  错误率(不含 expect): 0/50
+
+落盘: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_fa22186e1/recall_margin_E2E_20261026_055002.jsonl
+### 2026-10-26_05:50:31 4/5 工具调用 1 次
+E2E finish: tool_calls | tool_calls: [{"id": "call_ff8101a635084ed3b4098007", "index": 0, "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"北京\" | usage: {'prompt_tokens': 271, 'total_tokens': 310, 'completion_tokens': 39, 'prompt_tokens_details': None, 'reasoning_tokens': 0}
+### 2026-10-26_05:50:32 5/5 多流 bench k=4 mt=500 temp=0.7
+  "vram_max_mib": {
+    "gpu4": 78032,
+    "gpu5": 78068,
+    "gpu6": 78068,
+    "gpu7": 77748
+  }
+}
+[2026-10-26T05:50:40+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_fa22186e1/bench_E2E_k4_20261026_055032.json
+### 2026-10-26_05:50:40 6/6 抓本轮新增的 [gpu-expert-cache] 两行 (TP0 EP0)
+--- 新格式两行 (全 rank, 最近 12 条) ---
+[2026-10-26 05:49:57 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=22456 row-hit=96.4% | missed experts: admitted=679 (203 MiB/s) overflow(UVA)=0
+[2026-10-26 05:49:57 TP1 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=2 p99=3 p99.9=4; > max copy(8): 0.00% of 1212; histogram [(0, 727), (1, 337), (2, 111), (3, 28), (4, 9)]
+[2026-10-26 05:49:57 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=22481 row-hit=96.4% | missed experts: admitted=684 (204 MiB/s) overflow(UVA)=0
+[2026-10-26 05:49:57 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=2 p99=3 p99.9=4; > max copy(8): 0.00% of 1214; histogram [(0, 727), (1, 337), (2, 112), (3, 29), (4, 9)]
+[2026-10-26 05:50:16 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=209755 row-hit=98.8% | missed experts: admitted=2363 (706 MiB/s) overflow(UVA)=0
+[2026-10-26 05:50:16 TP2 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=2 p99.9=4; > max copy(8): 0.00% of 11740; histogram [(0, 9838), (1, 1536), (2, 291), (3, 58), (4, 14), (5, 3)]
+[2026-10-26 05:50:16 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=209755 row-hit=98.8% | missed experts: admitted=2363 (706 MiB/s) overflow(UVA)=0
+[2026-10-26 05:50:16 TP3 EP1] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=2 p99.9=4; > max copy(8): 0.00% of 11740; histogram [(0, 9838), (1, 1536), (2, 291), (3, 58), (4, 14), (5, 3)]
+[2026-10-26 05:50:27 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=237494 row-hit=99.2% | missed experts: admitted=1812 (541 MiB/s) overflow(UVA)=0
+[2026-10-26 05:50:27 TP1 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=2 p99.9=3; > max copy(8): 0.00% of 13168; histogram [(0, 11663), (1, 1254), (2, 204), (3, 40), (4, 6), (6, 1)]
+[2026-10-26 05:50:27 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=237500 row-hit=99.2% | missed experts: admitted=1807 (540 MiB/s) overflow(UVA)=0
+[2026-10-26 05:50:27 TP0 EP0] [gpu-expert-cache] distinct missed experts per layer-forward (graph): p50=0 p90=1 p99=2 p99.9=3; > max copy(8): 0.00% of 13168; histogram [(0, 11665), (1, 1254), (2, 203), (3, 39), (4, 6), (6, 1)]
+### 2026-10-26_05:50:40 完成 tag=E2E

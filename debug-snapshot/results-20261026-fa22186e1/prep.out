@@ -1,0 +1,88 @@
+### 2026-10-26_05:25:59 1/5 切到 fa22186e1
+Switched to a new branch 'diagnose/fa22186e1-logs-20261026'
+fa22186e1c GPU expert cache: copy kernel skips empty copy entries cheaply
+76f383b308 GPU expert cache: eager forward when every row's expert is routed
+### 2026-10-26_05:26:00 2/5 部署 2 个 .py
+OK   kernels/ops/moe/lk_verify_uva.py  md5=4e07016dd000e71e869306fd0f76b1f9
+OK   srt/layers/moe/fused_moe_triton/layer.py  md5=470974a681f12332c0b9879ec9529fe0
+OK   srt/layers/moe/gpu_expert_cache.py  md5=09fd066e3a4c1f3b888f14d81871dba5
+OK   srt/utils/lk_moe_env.py  md5=6e76de74a98cca3d174b3664cfc7e34c
+--- __pycache__ 残留检查 (应为空) ---
+deploy done: tag=02484dc460 -> fa22186e1c
+### 2026-10-26_05:26:00 3/5 全树核对
+repo .py files: 4511   differing: 0   missing in deploy: 94
+### 2026-10-26_05:26:04 4/5 单测
+  /mnt/SSD01/models/.llm-env/Lsglang/env/lib/python3.12/site-packages/flashinfer/cute_dsl/availability.py:136: DeprecationWarning: Arch from arch.py is deprecated. Use Arch from enums.py instead.
+    from cutlass.base_dsl.arch import Arch
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 19 warnings in 22.36s
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+.............                                                            [100%]
+13 passed in 17.01s
+### 2026-10-26_05:26:48 5/5 单层基准 (bf16 与 fp8, --rows-vram 108 --max-copy 8)
+  mode  rows   hit  ms/layer  x20 ms
+ graph     6  1.00     0.159    3.18
+ graph     6  0.98     0.160    3.20
+ graph     6  0.90     0.157    3.15
+ graph    12  1.00     0.236    4.71
+ graph    12  0.98     0.792   15.85
+ graph    12  0.90     0.603   12.07
+ graph    24  1.00     0.350    7.01
+ graph    24  0.98     0.353    7.06
+ graph    24  0.90     1.654   33.08
+ graph    48  1.00     0.496    9.93
+ graph    48  0.98     0.825   16.49
+ graph    48  0.90     9.910  198.20
+ graph    96  1.00     0.611   12.23
+ graph    96  0.98     2.303   46.06
+ graph    96  0.90    12.165  243.31
+ eager   128  1.00     1.500   29.99
+ eager   128  0.98     4.323   86.46
+ eager   128  0.90    11.335  226.70
+ eager   512  1.00     1.672   33.43
+ eager   512  0.98     8.604  172.07
+ eager   512  0.90    21.255  425.11
+ eager  2048  1.00     3.173   63.46
+ eager  2048  0.98    23.322  466.44
+ eager  2048  0.90    28.129  562.57
+misses  rows  ms/layer   (graph, rows=6; > --max-copy 的部分走 UVA)
+     0     6     0.161
+     1     6     0.343
+     2     6     0.529
+     4     6     0.911
+     6     6     1.281
+     8     6     1.657
+  mode  rows   hit  ms/layer  x20 ms
+ graph     6  1.00     0.139    2.78
+ graph     6  0.98     0.138    2.77
+ graph     6  0.90     0.134    2.69
+ graph    12  1.00     0.195    3.91
+ graph    12  0.98     0.758   15.16
+ graph    12  0.90     0.568   11.36
+ graph    24  1.00     0.283    5.66
+ graph    24  0.98     0.284    5.69
+ graph    24  0.90     1.582   31.65
+ graph    48  1.00     0.396    7.92
+ graph    48  0.98     0.728   14.56
+ graph    48  0.90     9.828  196.56
+ graph    96  1.00     0.499    9.98
+ graph    96  0.98     2.196   43.93
+ graph    96  0.90    12.164  243.28
+ eager   128  1.00     1.398   27.96
+ eager   128  0.98     4.374   87.48
+ eager   128  0.90    11.488  229.75
+ eager   512  1.00     1.446   28.93
+ eager   512  0.98     8.599  171.97
+ eager   512  0.90    21.988  439.77
+ eager  2048  1.00     2.448   48.95
+ eager  2048  0.98    22.940  458.80
+ eager  2048  0.90    28.365  567.30
+misses  rows  ms/layer   (graph, rows=6; > --max-copy 的部分走 UVA)
+     0     6     0.139
+     1     6     0.323
+     2     6     0.513
+     4     6     0.893
+     6     6     1.263
+     8     6     1.642
+### 2026-10-26_05:27:54 完成

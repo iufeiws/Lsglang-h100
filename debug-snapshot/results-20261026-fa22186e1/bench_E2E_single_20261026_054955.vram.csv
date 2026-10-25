@@ -1,0 +1,3 @@
+t_unix,elapsed_s,gpu4_used_mib,gpu5_used_mib,gpu6_used_mib,gpu7_used_mib,gpu4_util,gpu5_util,gpu6_util,gpu7_util
+1792964996,0.2,78030,78062,78062,77742,0,0,0,1
+1792965001,5.4,78030,78064,78064,77744,100,100,100,100
