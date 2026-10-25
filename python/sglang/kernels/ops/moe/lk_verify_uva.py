@@ -655,22 +655,25 @@ def admit_misses(*, topk_ids, slot_of, row_expert, score, counts, copy_row, copy
 
 @triton.jit
 def _copy_experts_kernel(copy_row_ptr, copy_expert_ptr, src_ptrs, dst_ptrs, words_ptr,
-                         total_items, num_tensors, max_chunks, BLOCK: tl.constexpr,
-                         NPROG: tl.constexpr):
-    for item in range(tl.program_id(0), total_items, NPROG):
-        j = item // (num_tensors * max_chunks)
-        t = (item // max_chunks) % num_tensors
-        start = (item % max_chunks) * BLOCK
+                         num_tensors, max_chunks, BLOCK: tl.constexpr, NPROG: tl.constexpr,
+                         MAX_COPY: tl.constexpr):
+    # Entries outer: an unused (-1) entry costs one load, so a forward without
+    # misses pays almost nothing.
+    for j in tl.static_range(MAX_COPY):
         expert = tl.load(copy_expert_ptr + j)
-        words = tl.load(words_ptr + t)
-        if (expert >= 0) & (start < words):
+        if expert >= 0:
             row = tl.load(copy_row_ptr + j).to(tl.int64)
-            off = start + tl.arange(0, BLOCK)
-            mask = off < words
-            src = (tl.cast(tl.load(src_ptrs + t), tl.pointer_type(tl.int32))
-                   + expert.to(tl.int64) * words)
-            dst = tl.cast(tl.load(dst_ptrs + t), tl.pointer_type(tl.int32)) + row * words
-            tl.store(dst + off, tl.load(src + off, mask=mask), mask=mask)
+            for item in range(tl.program_id(0), num_tensors * max_chunks, NPROG):
+                t = item // max_chunks
+                start = (item % max_chunks) * BLOCK
+                words = tl.load(words_ptr + t)
+                if start < words:
+                    off = start + tl.arange(0, BLOCK)
+                    mask = off < words
+                    src = (tl.cast(tl.load(src_ptrs + t), tl.pointer_type(tl.int32))
+                           + expert.to(tl.int64) * words)
+                    dst = tl.cast(tl.load(dst_ptrs + t), tl.pointer_type(tl.int32)) + row * words
+                    tl.store(dst + off, tl.load(src + off, mask=mask), mask=mask)
 
 
 def copy_experts(*, copy_row, copy_expert, src_ptrs, dst_ptrs, words, max_words: int,
@@ -682,8 +685,7 @@ def copy_experts(*, copy_row, copy_expert, src_ptrs, dst_ptrs, words, max_words:
     with wide coalesced reads keep PCIe saturated; entries of -1 are skipped.
     """
     block = 2048
-    max_chunks = triton.cdiv(max_words, block)
     _copy_experts_kernel[(num_programs,)](
-        copy_row, copy_expert, src_ptrs, dst_ptrs, words,
-        copy_row.numel() * words.numel() * max_chunks, words.numel(), max_chunks,
-        BLOCK=block, NPROG=num_programs)
+        copy_row, copy_expert, src_ptrs, dst_ptrs, words, words.numel(),
+        triton.cdiv(max_words, block), BLOCK=block, NPROG=num_programs,
+        MAX_COPY=copy_row.numel())
