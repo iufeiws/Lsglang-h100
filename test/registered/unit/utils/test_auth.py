@@ -148,6 +148,57 @@ class TestDecideRequestAuth(CustomTestCase):
         )
         self.assertFalse(decision.allowed)
 
+    def test_normal_with_x_api_key_correct(self):
+        """Anthropic SDKs / Claude Code send the key as ``x-api-key``."""
+        decision = decide_request_auth(
+            method="POST",
+            path="/v1/messages",
+            authorization_header=None,
+            api_key="my-api-key",
+            admin_api_key=None,
+            auth_level=AuthLevel.NORMAL,
+            api_key_header="my-api-key",
+        )
+        self.assertTrue(decision.allowed)
+
+    def test_normal_with_x_api_key_wrong(self):
+        decision = decide_request_auth(
+            method="POST",
+            path="/v1/messages",
+            authorization_header=None,
+            api_key="my-api-key",
+            admin_api_key=None,
+            auth_level=AuthLevel.NORMAL,
+            api_key_header="wrong-key",
+        )
+        self.assertFalse(decision.allowed)
+
+    def test_normal_with_bearer_and_wrong_x_api_key(self):
+        """A valid bearer token wins even when ``x-api-key`` is wrong."""
+        decision = decide_request_auth(
+            method="POST",
+            path="/v1/messages",
+            authorization_header="Bearer my-api-key",
+            api_key="my-api-key",
+            admin_api_key=None,
+            auth_level=AuthLevel.NORMAL,
+            api_key_header="wrong-key",
+        )
+        self.assertTrue(decision.allowed)
+
+    def test_admin_force_rejects_x_api_key(self):
+        """The admin key is never read from ``x-api-key``."""
+        decision = decide_request_auth(
+            method="POST",
+            path="/admin/endpoint",
+            authorization_header=None,
+            api_key=None,
+            admin_api_key="admin-secret",
+            auth_level=AuthLevel.ADMIN_FORCE,
+            api_key_header="admin-secret",
+        )
+        self.assertFalse(decision.allowed)
+
     def test_normal_only_admin_key_configured(self):
         """When only admin_api_key is configured, normal endpoints allow all."""
         decision = decide_request_auth(

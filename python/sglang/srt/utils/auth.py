@@ -79,6 +79,7 @@ def decide_request_auth(
     api_key: Optional[str],
     admin_api_key: Optional[str],
     auth_level: AuthLevel,
+    api_key_header: Optional[str] = None,
 ) -> AuthDecision:
     """Pure auth decision function (easy to unit test).
 
@@ -94,6 +95,10 @@ def decide_request_auth(
       api_key/admin_api_key is set), to support k8s probes and Prometheus
       scraping without embedding secrets.
     - We match them by prefix to cover common variants like /health_generate.
+    - ``api_key_header`` is the Anthropic-style ``x-api-key`` header. The
+      Anthropic SDKs and Claude Code send the key there instead of a bearer
+      token, so it is accepted wherever ``api_key`` is. Admin endpoints stay
+      bearer-only: the admin key is never read from ``x-api-key``.
     """
     if method == "OPTIONS":
         return AuthDecision(allowed=True)
@@ -116,6 +121,24 @@ def decide_request_auth(
             return False
         return secrets.compare_digest(parts[1], expected_token)
 
+    def _check_api_key_header(
+        api_key_header: Optional[str], expected_token: str
+    ) -> bool:
+        """Check the Anthropic-style ``x-api-key`` header (constant time)."""
+        if not api_key_header:
+            return False
+        return secrets.compare_digest(api_key_header.strip(), expected_token)
+
+    def _check_api_key(
+        authorization_header: Optional[str],
+        api_key_header: Optional[str],
+        expected_token: str,
+    ) -> bool:
+        """Accept either ``Authorization: Bearer`` or ``x-api-key``."""
+        return _check_bearer_token(
+            authorization_header, expected_token
+        ) or _check_api_key_header(api_key_header, expected_token)
+
     # Force-auth endpoints: only admin_api_key can unlock them; if admin_api_key is unset,
     # reject them unconditionally (explicitly "not allowed").
     if auth_level == AuthLevel.ADMIN_FORCE:
@@ -137,7 +160,7 @@ def decide_request_auth(
             )
         elif api_key:
             return AuthDecision(
-                allowed=_check_bearer_token(authorization_header, api_key)
+                allowed=_check_api_key(authorization_header, api_key_header, api_key)
             )
         else:
             return AuthDecision(allowed=True)
@@ -146,7 +169,9 @@ def decide_request_auth(
     # - if api_key is configured, require api_key (even if admin_api_key is also configured)
     # - otherwise allow (including the "admin_api_key only" case)
     if api_key:
-        return AuthDecision(allowed=_check_bearer_token(authorization_header, api_key))
+        return AuthDecision(
+            allowed=_check_api_key(authorization_header, api_key_header, api_key)
+        )
 
     return AuthDecision(allowed=True)
 
@@ -179,6 +204,7 @@ def add_api_key_middleware(
             request = Request(scope, receive=receive)
             path = request.url.path
             authz = request.headers.get("Authorization")
+            api_key_header = request.headers.get("x-api-key")
             level = _get_auth_level_from_app_and_scope(self.fastapi_app, scope)
             decision = decide_request_auth(
                 method=request.method,
@@ -187,6 +213,7 @@ def add_api_key_middleware(
                 api_key=self.api_key,
                 admin_api_key=self.admin_api_key,
                 auth_level=level,
+                api_key_header=api_key_header,
             )
 
             if not decision.allowed:

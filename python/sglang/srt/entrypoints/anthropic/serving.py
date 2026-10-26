@@ -132,12 +132,42 @@ def _anthropic_usage_from_openai(
     return AnthropicUsage(**usage_fields)
 
 
+# Claude Code (>= 2.1.x) prepends a telemetry block
+#   ``x-anthropic-billing-header: cc_version=<ver>.<fingerprint>; cc_entrypoint=<...>;``
+# as ``system[0]``. ``<fingerprint>`` is a 3-hex digest of the first user
+# message, so it changes from session to session (and for every sub-agent)
+# while the rest of the system prompt stays byte-identical. Because the block
+# sits at token 0 of the prompt, that single varying line invalidates the whole
+# prefix cache on every new session. It carries no model-visible information
+# (Anthropic's own API treats it as a header), so drop it before the prompt is
+# assembled. Clients can also opt out via ``CLAUDE_CODE_ATTRIBUTION_HEADER=0``;
+# this filter covers clients that cannot set it.
+_BILLING_HEADER_PREFIX = "x-anthropic-billing-header:"
+
+
+def _strip_billing_header_text(text: str) -> Optional[str]:
+    """Drop a leading ``x-anthropic-billing-header:`` line from *text*.
+
+    Returns the remaining text, or ``None`` when nothing is left. Text that
+    does not start with the marker is returned unchanged.
+    """
+    stripped = text.lstrip()
+    if not stripped.startswith(_BILLING_HEADER_PREFIX):
+        return text
+    _, _, rest = stripped.partition("\n")
+    rest = rest.strip()
+    if rest:
+        logger.debug("Dropped Claude Code billing-header line from system prompt")
+    return rest or None
+
+
 def _extract_system_text(
     content: Union[str, list[AnthropicContentBlock]],
 ) -> Optional[str]:
     """Flatten a system message's content to a trimmed string, or ``None``."""
     if isinstance(content, str):
-        return content.strip() or None
+        text = _strip_billing_header_text(content)
+        return text.strip() if text else None
     texts = []
     for block in content:
         if isinstance(block, BaseModel) and getattr(block, "type", None) == "text":
@@ -148,7 +178,9 @@ def _extract_system_text(
             continue
         text = (text or "").strip()
         if text:
-            texts.append(text)
+            text = _strip_billing_header_text(text)
+            if text:
+                texts.append(text)
     return "\n".join(texts) if texts else None
 
 
@@ -400,12 +432,15 @@ class AnthropicServing:
         system_parts: list[str] = []
         if anthropic_request.system:
             if isinstance(anthropic_request.system, str):
-                if anthropic_request.system.strip():
-                    system_parts.append(anthropic_request.system)
+                text = _strip_billing_header_text(anthropic_request.system)
+                if text and text.strip():
+                    system_parts.append(text)
             else:
                 for block in anthropic_request.system:
                     if block.type == "text" and block.text:
-                        system_parts.append(block.text)
+                        text = _strip_billing_header_text(block.text)
+                        if text:
+                            system_parts.append(text)
 
         if self._merge_inline_system:
             for msg in anthropic_request.messages:
