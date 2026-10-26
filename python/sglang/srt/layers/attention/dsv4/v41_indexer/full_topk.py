@@ -18,6 +18,7 @@ from sglang.kernels.ops.attention.dsv4.topk import topk_transform_paged_torch
 from sglang.srt.layers.attention.dsv4.indexer import topk_transform_paged_from_metadata
 
 from .scoring import (
+    decode_row_chunks,
     decode_scores,
     dense_prefill_topk,
     get_deep_gemm_decode_data,
@@ -134,27 +135,28 @@ class FullTopKIndexer:
         )
 
     def _torch_decode(self, inputs: DecodeInputs) -> None:
-        d = decode_scores(
-            inputs=inputs,
-            token_to_kv_pool=self.token_to_kv_pool,
-            req_to_token=self.req_to_token,
-            compute_topk_plan=not self.use_deep_select_decode,
-        )
-        if d is None:
-            return
-        if self.use_deep_select_decode:
-            metadata = inputs.paged_metadata
-            topk_page_transform(
-                d.scores,
-                inputs.indexer.index_topk,
-                page_table=metadata.page_table[: d.bs],
-                page_size=metadata.compressed_page_size,
-                end=d.lens.to(torch.int32),
-                sorted_index=False,
-                output_idx=inputs.out_page_indices[: d.bs],
+        for rows, chunk in decode_row_chunks(inputs, self.req_to_token):
+            d = decode_scores(
+                inputs=chunk,
+                token_to_kv_pool=self.token_to_kv_pool,
+                req_to_token=self.req_to_token,
+                compute_topk_plan=not self.use_deep_select_decode,
             )
-            return
-        select_decode(inputs, d, inputs.indexer.index_topk)
+            if d is None:
+                return
+            if self.use_deep_select_decode:
+                metadata = inputs.paged_metadata
+                topk_page_transform(
+                    d.scores,
+                    inputs.indexer.index_topk,
+                    page_table=metadata.page_table[rows][: d.bs],
+                    page_size=metadata.compressed_page_size,
+                    end=d.lens.to(torch.int32),
+                    sorted_index=False,
+                    output_idx=chunk.out_page_indices[: d.bs],
+                )
+                continue
+            select_decode(chunk, d, inputs.indexer.index_topk)
 
     def _deep_gemm_prefill_captured(self, inputs: CapturedPrefillInputs) -> None:
         indexer = inputs.indexer

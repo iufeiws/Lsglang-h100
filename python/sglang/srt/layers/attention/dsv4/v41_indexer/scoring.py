@@ -401,6 +401,57 @@ class PagedDecodeScores(msgspec.Struct, frozen=True):
     has_candidate_mask: bool
 
 
+def decode_row_chunks(
+    inputs: DecodeInputs, req_to_token: torch.Tensor
+) -> List[Tuple[slice, DecodeInputs]]:
+    """Row chunks of a Hopper paged decode whose fp32 scores fit the static MQA-logits
+    budget, each with its sliced inputs; one chunk elsewhere.
+
+    The paged scores are ``[rows, lmax]`` at the replay-bound width (the context
+    length over the ratio, not the live length), so one call per batch made graph
+    memory grow with ``rows x max context``. The budget needs no device query, so
+    capture can use it, and rows are scored independently, so chunks match one call.
+    """
+    from sglang.srt.layers.attention.mqa_logits_utils import (
+        mqa_logits_row_bytes,
+        mqa_logits_rows_per_chunk,
+        mqa_logits_static_budget_bytes,
+    )
+
+    from ..metadata import iter_row_chunks
+
+    rows = inputs.req_rows.shape[0]
+    if not get_platform().is_sm90 or rows == 0:
+        return [(slice(0, rows), inputs)]
+    lmax = min(
+        inputs.paged_metadata.max_compressed_seq_len,
+        req_to_token.shape[1] // inputs.compress_ratio,
+    )
+    rows_per_chunk = mqa_logits_rows_per_chunk(
+        num_rows=rows,
+        row_bytes=mqa_logits_row_bytes(lmax),
+        budget_bytes=mqa_logits_static_budget_bytes(
+            device_index=inputs.req_rows.device.index
+        ),
+    )
+    if rows_per_chunk is None:
+        return [(slice(0, rows), inputs)]
+    return [
+        (
+            chunk,
+            msgspec.structs.replace(
+                inputs,
+                x=inputs.x[chunk],
+                q_lora=inputs.q_lora[chunk],
+                positions=inputs.positions[chunk],
+                req_rows=inputs.req_rows[chunk],
+                out_page_indices=inputs.out_page_indices[chunk],
+            ),
+        )
+        for chunk in iter_row_chunks(num_rows=rows, rows_per_chunk=rows_per_chunk)
+    ]
+
+
 def decode_scores(
     *,
     inputs: DecodeInputs,

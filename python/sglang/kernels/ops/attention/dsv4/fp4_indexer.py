@@ -7,6 +7,7 @@ from triton.language.extra import libdevice
 
 from sglang.kernels.jit.utils import aligned_new_empty
 from sglang.kernels.ops.attention.deep_select import get_input_stride_alignment_bytes
+from sglang.kernels.ops.attention.dsv4.candidate_table import CANDIDATE_BLOCK_SIZE
 from sglang.kernels.ops.attention.dsv4.torch_quant import FP4_AMAX_FLOOR
 from sglang.srt.runtime_context import get_platform
 
@@ -847,6 +848,7 @@ def _fp4_index_logits_paged_kernel(
     HALF_D: tl.constexpr,
     RATIO: tl.constexpr,
     HAS_MASK: tl.constexpr,
+    MASK_BLOCK: tl.constexpr,
     BLOCK_L: tl.constexpr,
 ):
     b = tl.program_id(0)
@@ -857,7 +859,9 @@ def _fp4_index_logits_paged_kernel(
         valid = offs_l < n_vis
         if HAS_MASK:
             valid = valid & tl.load(
-                mask_ptr + b * mask_stride + offs_l, mask=offs_l < n_vis, other=False
+                mask_ptr + b * mask_stride + offs_l // MASK_BLOCK,
+                mask=offs_l < n_vis,
+                other=False,
             )
         slot = (
             tl.load(
@@ -900,13 +904,15 @@ def fp4_index_logits_paged(
     The output has graph-stable capacity, but only the first ``lens[b]`` values
     are initialized. Consumers must use the current device-side lengths.
     The FP4 decoding and BF16 rounding are shared with the dense-slot path.
+    ``candidate_mask`` holds one bool per ``CANDIDATE_BLOCK_SIZE`` positions.
     """
     assert q.dtype == torch.bfloat16 and q.shape[-1] == INDEX_HEAD_DIM
     assert table.dtype == torch.uint8 and table.ndim == 2
     assert ratio in (1, 2) and max_len <= req_table.shape[1] // ratio
     assert req_table.stride(1) == 1
     if candidate_mask is not None:
-        assert candidate_mask.shape[1] >= max_len and candidate_mask.stride(1) == 1
+        assert candidate_mask.shape[1] >= triton.cdiv(max_len, CANDIDATE_BLOCK_SIZE)
+        assert candidate_mask.stride(1) == 1
     batch, heads, _ = q.shape
     q = q.contiguous()
     weights = weights.to(torch.bfloat16).contiguous()
@@ -945,6 +951,7 @@ def fp4_index_logits_paged(
         HALF_D=INDEX_HEAD_DIM // 2,
         RATIO=ratio,
         HAS_MASK=candidate_mask is not None,
+        MASK_BLOCK=CANDIDATE_BLOCK_SIZE,
         BLOCK_L=64,
         num_warps=4,
     )

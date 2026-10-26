@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
+import triton
 
 from sglang.kernels.ops.attention.deepseek_v4_rope import (
     apply_rotary_emb_triton,
@@ -495,8 +496,11 @@ def test_fp4_paged_logits_replay(batch, ratio, width, masked):
     )
     req_table[:, : width * ratio : ratio] = (slots * ratio).to(torch.int32)
     lengths = lens.to(torch.int32)
+    # One bool per 8-position candidate block.
     candidate_mask = (
-        torch.rand(batch, capacity, device=q.device) > 0.3 if masked else None
+        torch.rand(batch, triton.cdiv(capacity, 8), device=q.device) > 0.3
+        if masked
+        else None
     )
     k = min(512, width)
 
@@ -542,7 +546,8 @@ def test_fp4_paged_logits_replay(batch, ratio, width, masked):
         graph.replay()
         expected = _reference_logits(q, weights, slots, lens, table)
         if masked:
-            expected.masked_fill_(~candidate_mask[:, :width], -torch.inf)
+            keep = candidate_mask.repeat_interleave(8, dim=1)[:, :width]
+            expected.masked_fill_(~keep, -torch.inf)
         visible_mask = torch.arange(width, device=q.device)[None, :] < lens[:, None]
         torch.testing.assert_close(
             scores[:, :width][visible_mask], expected[visible_mask], atol=0, rtol=0
@@ -595,7 +600,11 @@ def test_fp4_paged_logits_replay(batch, ratio, width, masked):
     reason="Hopper paged indexer dispatch",
 )
 @pytest.mark.parametrize("ratio", [1, 2])
-def test_hopper_indexer_backends_replay(ratio):
+@pytest.mark.parametrize("chunk_rows", [None, 5])
+def test_hopper_indexer_backends_replay(ratio, chunk_rows):
+    """``chunk_rows`` caps the static logits budget so a captured decode scores its
+    rows in chunks (5 splits a request's rows); the outputs must match one call."""
+    from sglang.srt.layers.attention import mqa_logits_utils
     from sglang.srt.layers.attention.dsv4.v41_indexer import scoring
     from sglang.srt.layers.attention.dsv4.v41_indexer.dense_blocks import (
         DenseBlocksBackend,
@@ -676,18 +685,31 @@ def test_hopper_indexer_backends_replay(ratio):
         candidates.consume_decode(decode_inputs[2], published)
         return published
 
-    for _ in range(3):
-        run()
-    graph = torch.cuda.CUDAGraph()
-    with patch.object(scoring, "fp4_index_logits_paged", side_effect=record_scores):
-        with torch.cuda.graph(graph):
-            published = run()
-    assert (
-        len(captured_scores) == 3
-    )  # all three runtime entrypoints took the paged path
+    budget = (
+        chunk_rows * mqa_logits_utils.mqa_logits_row_bytes(capacity)
+        if chunk_rows
+        else 1 << 40
+    )
+    with patch.object(
+        mqa_logits_utils, "mqa_logits_static_budget_bytes", return_value=budget
+    ):
+        for _ in range(3):
+            run()
+        graph = torch.cuda.CUDAGraph()
+        with patch.object(
+            scoring, "fp4_index_logits_paged", side_effect=record_scores
+        ):
+            with torch.cuda.graph(graph):
+                published = run()
+    chunks = triton.cdiv(batch, chunk_rows or batch)
+    # All three runtime entrypoints took the paged path, once per chunk.
+    assert len(captured_scores) == 3 * chunks
     mask = published.decode_mask
-    assert captured_masks[:2] == [None, None]
-    assert captured_masks[2] is mask
+    assert mask.shape == (batch, triton.cdiv(capacity, 8))
+    assert captured_masks[: 2 * chunks] == [None] * (2 * chunks)
+    assert [m.data_ptr() for m in captured_masks[2 * chunks :]] == [
+        mask[start:].data_ptr() for start in range(0, batch, chunk_rows or batch)
+    ]
     for step, visible in enumerate([193, 0, 1, 7, 8, 9, 65, 193]):
         # -1 positions exercise zero-length padded rows, also for ratio 1.
         lens.copy_((visible - torch.arange(batch, device=q.device) % 6).clamp_min(0))
@@ -724,7 +746,7 @@ def test_hopper_indexer_backends_replay(ratio):
                     maxima.topk(min(4, nblocks)).values.sort().values,
                 )
             keep = torch.isin(torch.arange(width, device=q.device) // 8, blocks)
-            torch.testing.assert_close(mask[row, :width], keep)
+            torch.testing.assert_close(mask[row].repeat_interleave(8)[:width], keep)
             consumer_scores[row].masked_fill_(~keep, -torch.inf)
             for out, scores in zip(
                 outputs, (source_scores, source_scores, consumer_scores)

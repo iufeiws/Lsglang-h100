@@ -150,13 +150,18 @@ def amax_topk_blocks(
 def candidate_block_mask(
     blocks: torch.Tensor, width: int, block_size: int
 ) -> torch.Tensor:
-    """Materialize a source's block IDs once for Hopper paged-score consumers."""
+    """Materialize a source's block IDs once for Hopper paged-score consumers.
+
+    One bool per block of ``block_size`` positions, ``[rows, ceil(width / block_size)]``:
+    the consumers' graph keeps it for the whole forward, so a per-position mask
+    would cost ``block_size`` times as much at the replay-bound width.
+    """
     num_blocks = (width + block_size - 1) // block_size
     keep = torch.zeros(
         (*blocks.shape[:-1], num_blocks + 1), dtype=torch.bool, device=blocks.device
     )
     keep.scatter_(-1, blocks.to(torch.int64).masked_fill(blocks < 0, num_blocks), True)
-    return keep[..., :num_blocks].repeat_interleave(block_size, dim=-1)[..., :width]
+    return keep[..., :num_blocks]
 
 
 def select_candidate_block_ids(

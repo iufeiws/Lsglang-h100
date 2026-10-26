@@ -19,6 +19,7 @@ from sglang.kernels.ops.attention.dsv4.index_logits import FLAT_LOGITS_WIDTH_ALI
 from .scoring import (
     DeepGEMMPrefillData,
     PagedDecodeScores,
+    decode_row_chunks,
     decode_scores,
     get_deep_gemm_prefill_data,
     prefill_requests,
@@ -90,6 +91,9 @@ class DenseBlocksBackend:
             self._torch_consume_prefill(inputs, published)
 
     def publish_decode(self, inputs: DecodeInputs):
+        chunks = decode_row_chunks(inputs, self.req_to_token)
+        if len(chunks) > 1:
+            return self._paged_publish_decode_chunks(chunks)
         d = decode_scores(
             inputs=inputs,
             token_to_kv_pool=self.token_to_kv_pool,
@@ -98,10 +102,7 @@ class DenseBlocksBackend:
         if d is None:
             return None
         if isinstance(d, PagedDecodeScores):
-            assert self.block_size == 8
-            blocks = amax_topk_blocks(
-                d.scores, d.lens, (d.lens + 7) // 8, self.topk_blocks
-            )
+            blocks = self._paged_blocks(d)
             published = BlockIds(
                 blocks=blocks,
                 decode_mask=candidate_block_mask(blocks, d.lmax, self.block_size),
@@ -123,6 +124,19 @@ class DenseBlocksBackend:
         inputs: DecodeInputs,
         published: Optional[BlockIds],
     ) -> None:
+        chunks = decode_row_chunks(inputs, self.req_to_token)
+        if len(chunks) > 1:
+            assert published is not None and published.decode_mask is not None
+            for rows, chunk in chunks:
+                d = decode_scores(
+                    inputs=chunk,
+                    token_to_kv_pool=self.token_to_kv_pool,
+                    req_to_token=self.req_to_token,
+                    candidate_mask=published.decode_mask[rows],
+                )
+                if d is not None:
+                    select_decode(chunk, d, chunk.indexer.index_topk)
+            return
         d = decode_scores(
             inputs=inputs,
             token_to_kv_pool=self.token_to_kv_pool,
@@ -141,6 +155,34 @@ class DenseBlocksBackend:
             d.scores, d.lens, published.blocks, k, block_size=self.block_size
         )
         write_decode(inputs, d, idx.masked_fill(idx < 0, d.lmax))
+
+    def _paged_blocks(self, d: PagedDecodeScores) -> torch.Tensor:
+        assert self.block_size == 8
+        return amax_topk_blocks(d.scores, d.lens, (d.lens + 7) // 8, self.topk_blocks)
+
+    def _paged_publish_decode_chunks(
+        self, chunks: List[Tuple[slice, DecodeInputs]]
+    ) -> Optional[BlockIds]:
+        """Hopper paged publish over row chunks, so only one chunk's full-width
+        scores are live; the block ids of all rows make one consumer mask."""
+        blocks, lmax = [], 0
+        for _, chunk in chunks:
+            d = decode_scores(
+                inputs=chunk,
+                token_to_kv_pool=self.token_to_kv_pool,
+                req_to_token=self.req_to_token,
+            )
+            if d is None:
+                # lmax == 0 is shared by every chunk, so nothing is visible anywhere.
+                return None
+            blocks.append(self._paged_blocks(d))
+            lmax = d.lmax
+            select_decode(chunk, d, chunk.indexer.index_topk)
+        blocks = torch.cat(blocks)
+        return BlockIds(
+            blocks=blocks,
+            decode_mask=candidate_block_mask(blocks, lmax, self.block_size),
+        )
 
     # ---------- DeepGEMM: flattened-K scores ----------
 
