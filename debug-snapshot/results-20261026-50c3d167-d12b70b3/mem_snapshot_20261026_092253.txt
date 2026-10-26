@@ -1,0 +1,85 @@
+########## 内存快照 2026-10-26_09:22:53 (服务: util 0.90 / mrr 32 / SLOTS 112 / fp8 / GPU 4,6,5,7) ##########
+--- e2e 是否在跑 ---
+27477 bash /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/scripts/e2e_50c3d167_d12b70b3.sh
+30802 bash -c RES=/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3; for i in $(seq 1 170); do if ! pgrep -f e2e_50c3d167_d12b70b3 >/dev/null; then echo "e2e 结束于 $(date +%F_%T)"; break; fi; sleep 15; done; echo "=== e2e_run.out 尾部 ==="; tail -40 $RES/e2e_run.out; echo "=== 产物 ==="; ls -la $RES | tail -20
+(e2e 日志尾部)
+   50: OK   0.57s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+
+不同输出种类: 1  多数输出 x50  错误率(不含 expect): 0/50
+
+落盘: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/recall_margin_d12b70b3_20261026_092221.jsonl
+
+--- GPU 显存 (nvidia-smi, 全部卡) ---
+index, uuid, memory.used [MiB], memory.total [MiB], utilization.gpu [%]
+0, GPU-8cc04831-01e3-5a2b-2ceb-49d32546f4d7, 72041 MiB, 81559 MiB, 0 %
+1, GPU-ade45720-0e9e-3166-f462-c344d740c1eb, 72041 MiB, 81559 MiB, 0 %
+2, GPU-b50819ea-14a4-290a-5835-2e2a6210bb8f, 0 MiB, 81559 MiB, 0 %
+3, GPU-ccb33058-8899-4165-97a3-7cc5e661fd25, 0 MiB, 81559 MiB, 0 %
+4, GPU-7561b28f-b049-bbdb-31f8-16efeb06663d, 80094 MiB, 81559 MiB, 0 %
+5, GPU-fb59db94-0e4e-4c4f-8ae5-4d0fdd1e0f0b, 80188 MiB, 81559 MiB, 0 %
+6, GPU-3c5d7267-445c-4679-bce9-503bedd0c920, 80188 MiB, 81559 MiB, 0 %
+7, GPU-3c0f2856-a6e3-b9d5-fd10-a08f55579fff, 79708 MiB, 81559 MiB, 0 %
+
+--- 计算进程占用 ---
+pid, used_gpu_memory [MiB]
+62208, 70496 MiB
+62209, 70496 MiB
+63817, 79482 MiB
+63819, 79576 MiB
+63818, 79576 MiB
+63820, 79096 MiB
+
+--- 四个 rank 的进程 RSS (MiB) ---
+61502  RSS=9 MiB  5-17:34:20
+63142  RSS=1527 MiB  25:22
+63816  RSS=12 MiB  25:04
+63817  RSS=313299 MiB  25:04
+63818  RSS=313344 MiB  25:04
+63819  RSS=313180 MiB  25:04
+63820  RSS=313125 MiB  25:04
+63821  RSS=1387 MiB  25:04
+   四 rank RSS 合计: 1225.1 GiB
+
+--- 主机内存 (free -g / -m) ---
+               total        used        free      shared  buff/cache   available
+Mem:            2015         360         984         419         670        1225
+Swap:              0           0           0
+               total        used        free      shared  buff/cache   available
+Mem:         2064020      368932     1008180      429071      686907     1255251
+
+--- /proc/meminfo 关键项 ---
+MemTotal:       2113557024 kB
+MemFree:        1032376648 kB
+MemAvailable:   1285377092 kB
+Cached:         693391036 kB
+SwapCached:            0 kB
+Shmem:          439369420 kB
+HugePages_Total:       0
+HugePages_Free:        0
+Hugepagesize:       2048 kB
+
+--- serve 日志里的显存/内存相关行 ---
+[2026-10-26 09:17:42 TP2 EP1] Allocating 15.57 GB host memory for V4 paged pool 'swa' (layers=43, pages=2418, item_bytes=149760, layout=page_first).
+[2026-10-26 09:17:42 TP1 EP0] Allocating 15.57 GB host memory for V4 paged pool 'swa' (layers=43, pages=2418, item_bytes=149760, layout=page_first).
+[2026-10-26 09:17:42 TP3 EP1] Allocating 15.57 GB host memory for V4 paged pool 'swa' (layers=43, pages=2418, item_bytes=149760, layout=page_first).
+[2026-10-26 09:17:42 TP0 EP0] Allocating 15.57 GB host memory for V4 paged pool 'swa' (layers=43, pages=2418, item_bytes=149760, layout=page_first).
+[2026-10-26 09:17:56 TP0 EP0] Allocating 11.24 GB host memory for V4 paged pool 'deepseek_v4_c1' (layers=1, pages=75042, item_bytes=149760, layout=page_first).
+[2026-10-26 09:17:57 TP0 EP0] Allocating 1.31 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layers=1, pages=75042, item_bytes=17408, layout=page_first).
+[2026-10-26 09:18:06 TP1 EP0] Allocating 11.24 GB host memory for V4 paged pool 'deepseek_v4_c1' (layers=1, pages=75042, item_bytes=149760, layout=page_first).
+[2026-10-26 09:18:07 TP1 EP0] Allocating 1.31 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layers=1, pages=75042, item_bytes=17408, layout=page_first).
+[2026-10-26 09:18:14 TP0 EP0] Allocating 16.86 GB host memory for V4 paged pool 'deepseek_v4_c2' (layers=3, pages=75042, item_bytes=74880, layout=page_first).
+[2026-10-26 09:18:15 TP2 EP1] Allocating 11.24 GB host memory for V4 paged pool 'deepseek_v4_c1' (layers=1, pages=75042, item_bytes=149760, layout=page_first).
+[2026-10-26 09:18:16 TP2 EP1] Allocating 1.31 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layers=1, pages=75042, item_bytes=17408, layout=page_first).
+[2026-10-26 09:18:23 TP1 EP0] Allocating 16.86 GB host memory for V4 paged pool 'deepseek_v4_c2' (layers=3, pages=75042, item_bytes=74880, layout=page_first).
+[2026-10-26 09:18:23 TP0 EP0] Allocating 1.96 GB host memory for V4 paged pool 'deepseek_v4_c2_indexer' (layers=3, pages=75042, item_bytes=8704, layout=page_first).
+[2026-10-26 09:18:24 TP3 EP1] Allocating 11.24 GB host memory for V4 paged pool 'deepseek_v4_c1' (layers=1, pages=75042, item_bytes=149760, layout=page_first).
+[2026-10-26 09:18:25 TP3 EP1] Allocating 1.31 GB host memory for V4 paged pool 'deepseek_v4_c1_indexer' (layers=1, pages=75042, item_bytes=17408, layout=page_first).
+[2026-10-26 09:18:32 TP2 EP1] Allocating 16.86 GB host memory for V4 paged pool 'deepseek_v4_c2' (layers=3, pages=75042, item_bytes=74880, layout=page_first).
+[2026-10-26 09:18:33 TP1 EP0] Allocating 1.96 GB host memory for V4 paged pool 'deepseek_v4_c2_indexer' (layers=3, pages=75042, item_bytes=8704, layout=page_first).
+[2026-10-26 09:18:33 TP0 EP0] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=True hybrid_ssm=False hicache_attached=True
+[2026-10-26 09:18:41 TP1 EP0] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=True hybrid_ssm=False hicache_attached=True
+[2026-10-26 09:18:42 TP3 EP1] Allocating 16.86 GB host memory for V4 paged pool 'deepseek_v4_c2' (layers=3, pages=75042, item_bytes=74880, layout=page_first).
+[2026-10-26 09:18:42 TP2 EP1] Allocating 1.96 GB host memory for V4 paged pool 'deepseek_v4_c2_indexer' (layers=3, pages=75042, item_bytes=8704, layout=page_first).
+[2026-10-26 09:18:51 TP2 EP1] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=True hybrid_ssm=False hicache_attached=True
+[2026-10-26 09:18:52 TP3 EP1] Allocating 1.96 GB host memory for V4 paged pool 'deepseek_v4_c2_indexer' (layers=3, pages=75042, item_bytes=8704, layout=page_first).
+[2026-10-26 09:19:01 TP3 EP1] Tree cache initialized: source=default impl=UnifiedRadixCache hybrid_swa=True hybrid_ssm=False hicache_attached=True

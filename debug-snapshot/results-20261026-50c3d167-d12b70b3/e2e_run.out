@@ -1,0 +1,223 @@
+ls: write error: Broken pipe
+### 2026-10-26_09:20:51 0/6 serve 日志=/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_085714.log
+### 生效快照 /mnt/SSD01/models/.llm-env/Lsglang/configs/dsv41_tp4_h100.effective.20261026_085714.conf 里的关键键:
+export LK_GPU_CACHE_MAX_COPY=8
+export LK_GPU_CACHE_PRECISION=fp8
+export LK_GPU_CACHE_SLOTS=112
+# (空) LK_GPU_CACHE_SCORE_DECAY
+/mnt/SSD01/models/.llm-env/Lsglang/env/bin/sglang serve --model /mnt/SSD01/models/DeepSeek/DeepSeek-V4.1-Flash-1017 --tensor-parallel-size 4 --ep-size 2 --mem-fraction-static 0.90 --max-running-requests 32 --context-length 1048576 --chunked-prefill-size 8192 --moe-runner-backend flashinfer_mxfp4 --disable-flashinfer-autotune --enable-decoder-swa-bounded-replay --disable-shared-experts-fusion --reasoning-parser auto --tool-call-parser auto --enable-hierarchical-cache --hicache-ratio 6 --trust-remote-code --api-key sk-dsv41-h100-interop-2026 --max-total-tokens 4194304 --speculative-algorithm DSPARK --speculative-dspark-block-size 5 --speculative-attention-mode decode --speculative-use-rejection-sampling --cuda-graph-max-bs-decode 64 --cuda-graph-max-bs-prefill 64 --host 0.0.0.0 --port 18010 --served-model-name DeepSeek-V4.1-Flash-1017
+#   LK_GPU_CACHE_SLOTS: layer
+### 2026-10-26_09:20:51 1/6 profile (num_steps=40, activities=GPU) 期间单流 k=1
+Start profiling.
+
+    "gpu7": 76640
+  }
+}
+[2026-10-26T09:21:08+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_prof_window_20261026_092052.json
+  traces: 4
+### 2026-10-26_09:21:28 2/6 干净 k=1 / k=4
+    "gpu7": 76642
+  }
+}
+[2026-10-26T09:21:35+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_k1_clean_20261026_092128.json
+    "gpu7": 76642
+  }
+}
+[2026-10-26T09:22:01+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_k4_clean_20261026_092155.json
+### 2026-10-26_09:22:21 3/6 复述 recall_margin n=50 (贪心+logprob)
+   47: OK   0.60s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   48: OK   0.60s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   49: OK   0.58s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+   50: OK   0.57s '# 交接说明 — DeepSeek-V4.1-Flash-1017 / TP4(H100) / EP2 现状'
+
+不同输出种类: 1  多数输出 x50  错误率(不含 expect): 0/50
+
+落盘: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/recall_margin_d12b70b3_20261026_092221.jsonl
+### 2026-10-26_09:23:12 4/6 工具调用 10 次 (temp0 ×5 + temp0.7 ×5)
+  temp=0.7 #1 OK  finish=tool_calls   [{"id": "call_bfdfe623fc424c15a30661dd", "index": 0, "type": "function", "functi
+  temp=0.7 #2 OK  finish=tool_calls   [{"id": "call_d03c0c26d6424c21a5c7ea4b", "index": 0, "type": "function", "functi
+  temp=0.7 #3 OK  finish=tool_calls   [{"id": "call_7da0c7e57eac44ac88c64996", "index": 0, "type": "function", "functi
+  temp=0.7 #4 OK  finish=tool_calls   [{"id": "call_92a878eae0d248bfa7b9522c", "index": 0, "type": "function", "functi
+  temp=0.7 #5 OK  finish=tool_calls   [{"id": "call_4fb8e8be4ac84cab9639670b", "index": 0, "type": "function", "functi
+
+  通过 10/10  (temp0: 5/5, temp0.7: 5/5)
+  raw -> /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/toolcalls_d12b70b3.jsonl
+### 2026-10-26_09:23:36 5/6 16k 长上下文压测 k=2/8/16/32 (第一遍 + 复测一遍)
+  "ms_step": {
+    "p50": 27.355,
+    "p10": 22.341,
+    "p90": 32.369,
+    "n": 2
+  },
+  "completion_tokens_sum": 512,
+  "overlap_window": {
+    "window_s": 1.835,
+    "agg_tok_s": 77.162,
+    "n_streams": 2
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k2_20261026_092337.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k2_20261026_092337.csv",
+  "vram_max_mib": {
+    "gpu4": 81014,
+    "gpu5": 81008,
+    "gpu6": 81008,
+    "gpu7": 80628
+  }
+}
+[2026-10-26T09:23:42+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k2_20261026_092337.json
+  "ms_step": {
+    "p50": 173.707,
+    "p10": 42.083,
+    "p90": 328.872,
+    "n": 8
+  },
+  "completion_tokens_sum": 2034,
+  "overlap_window": {
+    "window_s": 2.5,
+    "agg_tok_s": 89.442,
+    "n_streams": 8
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k8_20261026_092402.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k8_20261026_092402.csv",
+  "vram_max_mib": {
+    "gpu4": 81074,
+    "gpu5": 81066,
+    "gpu6": 81066,
+    "gpu7": 80710
+  }
+}
+[2026-10-26T09:24:36+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k8_20261026_092402.json
+  "ms_step": {
+    "p50": 388.015,
+    "p10": 89.644,
+    "p90": 586.092,
+    "n": 16
+  },
+  "completion_tokens_sum": 3927,
+  "overlap_window": {
+    "window_s": 1.757,
+    "agg_tok_s": 87.316,
+    "n_streams": 16
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k16_20261026_092456.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k16_20261026_092456.csv",
+  "vram_max_mib": {
+    "gpu4": 81072,
+    "gpu5": 81072,
+    "gpu6": 81072,
+    "gpu7": 80712
+  }
+}
+[2026-10-26T09:26:01+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k16_20261026_092456.json
+  "ms_step": {
+    "p50": 585.197,
+    "p10": 221.759,
+    "p90": 720.361,
+    "n": 32
+  },
+  "completion_tokens_sum": 8014,
+  "overlap_window": {
+    "window_s": 2.942,
+    "agg_tok_s": 88.897,
+    "n_streams": 32
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k32_20261026_092621.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k32_20261026_092621.csv",
+  "vram_max_mib": {
+    "gpu4": 81058,
+    "gpu5": 81078,
+    "gpu6": 81076,
+    "gpu7": 80728
+  }
+}
+[2026-10-26T09:27:31+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_k32_20261026_092621.json
+  "ms_step": {
+    "p50": 16.954,
+    "p10": 16.662,
+    "p90": 17.246,
+    "n": 2
+  },
+  "completion_tokens_sum": 512,
+  "overlap_window": {
+    "window_s": 1.234,
+    "agg_tok_s": 118.02,
+    "n_streams": 2
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k2_20261026_092752.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k2_20261026_092752.csv",
+  "vram_max_mib": {
+    "gpu4": 81060,
+    "gpu5": 80514,
+    "gpu6": 80514,
+    "gpu7": 80728
+  }
+}
+[2026-10-26T09:27:54+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k2_20261026_092752.json
+  "ms_step": {
+    "p50": 27.766,
+    "p10": 27.468,
+    "p90": 27.888,
+    "n": 8
+  },
+  "completion_tokens_sum": 2048,
+  "overlap_window": {
+    "window_s": 2.367,
+    "agg_tok_s": 288.724,
+    "n_streams": 8
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k8_20261026_092815.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k8_20261026_092815.csv",
+  "vram_max_mib": {
+    "gpu4": 81062,
+    "gpu5": 80518,
+    "gpu6": 80518,
+    "gpu7": 80728
+  }
+}
+[2026-10-26T09:28:20+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k8_20261026_092815.json
+  "ms_step": {
+    "p50": 38.932,
+    "p10": 36.728,
+    "p90": 39.372,
+    "n": 16
+  },
+  "completion_tokens_sum": 4096,
+  "overlap_window": {
+    "window_s": 2.946,
+    "agg_tok_s": 416.318,
+    "n_streams": 16
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k16_20261026_092840.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k16_20261026_092840.csv",
+  "vram_max_mib": {
+    "gpu4": 81072,
+    "gpu5": 80528,
+    "gpu6": 80528,
+    "gpu7": 80730
+  }
+}
+[2026-10-26T09:28:53+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k16_20261026_092840.json
+  "ms_step": {
+    "p50": 613.603,
+    "p10": 110.657,
+    "p90": 792.729,
+    "n": 32
+  },
+  "completion_tokens_sum": 7754,
+  "overlap_window": {
+    "window_s": 0.0,
+    "agg_tok_s": 128.083,
+    "n_streams": 32
+  },
+  "vram_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k32_20261026_092914.vram.csv",
+  "per_stream_csv": "/data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k32_20261026_092914.csv",
+  "vram_max_mib": {
+    "gpu4": 81072,
+    "gpu5": 81030,
+    "gpu6": 81028,
+    "gpu7": 80730
+  }
+}
+[2026-10-26T09:30:30+08:00] 完成: /data3/shared/wangyf/llm-serving/fix3-dspark-20261025/results_50c3d167_d12b70b3/bench_16k_rep_k32_20261026_092914.json
+### 2026-10-26_09:30:50 6/6 抓缓存日志 / 缓存行 / 显存
+### 2026-10-26_09:30:51 完成

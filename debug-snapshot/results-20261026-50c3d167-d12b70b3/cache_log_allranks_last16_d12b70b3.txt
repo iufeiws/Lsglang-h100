@@ -1,0 +1,16 @@
+[2026-10-26 09:28:59 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=512906 row-hit=99.5% | missed experts: admitted=2176 (650 MiB/s) overflow(UVA)=0
+[2026-10-26 09:28:59 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=498694 row-hit=99.5% | missed experts: admitted=2245 (671 MiB/s) overflow(UVA)=3
+[2026-10-26 09:29:03 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=512906 row-hit=99.5% | missed experts: admitted=2176 (650 MiB/s) overflow(UVA)=0
+[2026-10-26 09:29:13 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=498694 row-hit=99.5% | missed experts: admitted=2245 (671 MiB/s) overflow(UVA)=3
+[2026-10-26 09:29:29 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 09:29:29 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 09:29:33 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 09:29:43 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 09:29:59 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 09:29:59 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 09:30:03 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 09:30:13 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=0 row-hit=0.0% | missed experts: admitted=0 (0 MiB/s) overflow(UVA)=0
+[2026-10-26 09:30:29 TP3 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=894516 row-hit=99.5% | missed experts: admitted=3840 (1147 MiB/s) overflow(UVA)=38
+[2026-10-26 09:30:29 TP0 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=877950 row-hit=99.4% | missed experts: admitted=3764 (1125 MiB/s) overflow(UVA)=121
+[2026-10-26 09:30:33 TP2 EP1] [gpu-expert-cache] 20 layers, last 30s: graph routes=1006029 row-hit=99.4% | missed experts: admitted=4520 (1351 MiB/s) overflow(UVA)=39
+[2026-10-26 09:30:43 TP1 EP0] [gpu-expert-cache] 20 layers, last 30s: graph routes=984771 row-hit=99.4% | missed experts: admitted=4446 (1329 MiB/s) overflow(UVA)=129

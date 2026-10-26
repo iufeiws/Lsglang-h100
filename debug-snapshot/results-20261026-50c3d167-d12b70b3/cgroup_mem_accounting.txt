@@ -1,0 +1,24 @@
+########## cgroup 实际计量 2026-10-26_09:31:21 ##########
+cgroup: /sys/fs/cgroup/user.slice/user-1084.slice/user@1084.service/app.slice/dsh-subprocess-51812-b4ad590eaf3a.scope
+memory.current = 740766162944 B = 689.9 GiB
+--- memory.stat (GiB) ---
+anon               291.61
+file               394.86
+shmem              364.01
+file_mapped        364.04
+inactive_anon      655.62
+inactive_file       21.17
+active_file          9.68
+slab                 0.97
+--- 机器整体 ---
+               total        used        free      shared  buff/cache   available
+Mem:         2064020      369186     1008004      428991      686829     1255077
+--- 每 rank smaps_rollup (GiB) ---
+PID            Rss       Pss SharedDirty PrivateDirty
+63817       305.97    163.71    188.83    116.29
+63818       306.01    163.75    188.83    116.33
+63819       305.85    163.59    188.83    116.17
+63820       305.79    163.54    188.83    116.12
+--- engram shm 映射 (rank TP0) ---
+     34257 MiB  /dev/shm/sglang_engram_14.63817
+     96684 MiB  /dev/shm/sglang_engram_1.63817

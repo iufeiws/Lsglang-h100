@@ -1,0 +1,75 @@
+########## 主机内存分摊 2026-10-26_09:27:17 ##########
+PID      CMD                                 VmRSS_MiB  VmHWM_MiB  VmLck_MiB    PSS_MiB Private_MiB
+45272    bash -c RES=/data3/shared/wangyf/l
+{
+echo "########## 主机内存分�
+PIDS=$(pgrep -f "sglang serve|sgla
+printf "%-8s %-34s %10s %10s %10s 
+tot_rss=0; tot_pss=0; tot_priv=0; 
+for p in $PIDS; do
+  cmd=$(tr '\0' ' ' < /proc/$p/cmd
+  read -r rss hwm lck < <(awk '/^V
+  read -r pss priv < <(awk '/^Pss:
+  printf "%-8s %-34s %10.0f %10.0f
+  tot_rss=$((tot_rss+${rss:-0})); 
+done
+echo
+printf "合计: VmRSS=%.1f GiB   P
+  "$(echo "$tot_rss/1048576" | bc 
+echo; echo "--- 机器整体 (free
+echo "--- /proc/meminfo ---"; grep
+echo "--- 本机其他用户进程
+} 2>&1 | tee $OUT; chmod 644 $OUT        3328       3328          0        294        136
+45280    bash -c RES=/data3/shared/wangyf/l
+{
+echo "########## 主机内存分�
+PIDS=$(pgrep -f "sglang serve|sgla
+printf "%-8s %-34s %10s %10s %10s 
+tot_rss=0; tot_pss=0; tot_priv=0; 
+for p in $PIDS; do
+  cmd=$(tr '\0' ' ' < /proc/$p/cmd
+  read -r rss hwm lck < <(awk '/^V
+  read -r pss priv < <(awk '/^Pss:
+  printf "%-8s %-34s %10.0f %10.0f
+  tot_rss=$((tot_rss+${rss:-0})); 
+done
+echo
+printf "合计: VmRSS=%.1f GiB   P
+  "$(echo "$tot_rss/1048576" | bc 
+echo; echo "--- 机器整体 (free
+echo "--- /proc/meminfo ---"; grep
+echo "--- 本机其他用户进程
+} 2>&1 | tee $OUT; chmod 644 $OUT        2540       2540          0        285        144
+61502    /home/chensm/miniconda3/envs/vllm_       9188      13720          0          0          0
+63142    python /mnt/SSD01/models/.llm-env/    1703904    1703904          0    1286644    1201708
+63816    python -c from multiprocessing.res      12388      12420          0       6427       5892
+63817    sglang::scheduler_TP0_EP0           320824936  320873432          0  171664702  121998068
+63818    sglang::scheduler_TP1_EP0           320866324  320918880          0  171706166  122040212
+63819    sglang::scheduler_TP2_EP1           320698140  320750980          0  171537380  121871596
+63820    sglang::scheduler_TP3_EP1           320643092  320695620          0  171483507  121817296
+63821    sglang::detokenizer                   1420240    1435360          0    1003725     920468
+
+合计: VmRSS=1226.6 GiB   PSS=656.8 GiB   Private=467.2 GiB   VmLck(pinned)=0.0 GiB
+
+--- 机器整体 (free -m) ---
+               total        used        free      shared  buff/cache   available
+Mem:         2064020      369231     1007856      429095      686932     1254928
+Swap:              0           0           0
+--- /proc/meminfo ---
+MemTotal:       2113557024 kB
+MemFree:        1032044848 kB
+MemAvailable:   1285045972 kB
+Buffers:          244956 kB
+Cached:         693415572 kB
+Shmem:          439394000 kB
+SReclaimable:    9758112 kB
+ShmemHugePages:        0 kB
+ShmemPmdMapped:        0 kB
+HugePages_Total:       0
+--- 本机其他用户进程 RSS top5 ---
+USER       PID   RSS CMD
+wangyf   63818 320866452 sglang::scheduler_TP1_EP0
+wangyf   63817 320825068 sglang::scheduler_TP0_EP0
+wangyf   63819 320698268 sglang::scheduler_TP2_EP1
+wangyf   63820 320643092 sglang::scheduler_TP3_EP1
+chensm   62208 4739940 VLLM::Worker_TP0

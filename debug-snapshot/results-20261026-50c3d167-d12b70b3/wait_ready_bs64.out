@@ -1,0 +1,31 @@
+### 等待就绪 log=/mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_085714.log pid=63142 2026-10-26_09:00:23
+### READY after 1170s 2026-10-26_09:19:24
+--- 真实命令行 ---
+sglang serve 启动记录 【定稿版】 ====================
+--- server_args 关键值 ---
+'mem_fraction_static': 0.9
+'max_running_requests': 32
+--- max_total_num_tokens ---
+[2026-10-26 09:17:33 TP0 EP0] max_total_num_tokens=3201792, chunked_prefill_size=8192, max_prefill_tokens=16384, max_running_requests=32, context_len=1048576, available_gpu_mem=4.60 GB
+--- 图捕获 (全部 rank) ---
+[2026-10-26 09:16:53 TP2 EP1] Capture target verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32], elapsed=37.68 s, mem usage=2.03 GB, avail mem=4.71 GB.
+[2026-10-26 09:16:53 TP1 EP0] Capture target verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32], elapsed=37.68 s, mem usage=2.03 GB, avail mem=4.71 GB.
+[2026-10-26 09:16:53 TP0 EP0] Capture target verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32], elapsed=37.68 s, mem usage=2.03 GB, avail mem=4.81 GB.
+[2026-10-26 09:16:53 TP3 EP1] Capture target verify CUDA graph end. bs=[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32], elapsed=37.69 s, mem usage=2.03 GB, avail mem=5.18 GB.
+--- 缓存初始化行 ---
+[2026-10-26 09:07:08 TP3 EP1] LK_GPU_CACHE_SLOTS: layer 20: 112 VRAM rows (0.98 GiB, W4A8), up to 8 misses admitted per forward, 192 experts pinned on host (3.36 GiB, checkpoint + row layouts), row source on NUMA node 1 (first pages on [1, 1, 1, 1, 1, 1])
+[2026-10-26 09:07:08 TP1 EP0] LK_GPU_CACHE_SLOTS: layer 20: 112 VRAM rows (0.98 GiB, W4A8), up to 8 misses admitted per forward, 192 experts pinned on host (3.36 GiB, checkpoint + row layouts), row source on NUMA node 1 (first pages on [1, 1, 1, 1, 1, 1])
+--- 自检 ---
+==============================================================
+ 启动后自检 · W4A8 开关是否生效
+==============================================================
+ 日志: /mnt/SSD01/models/.llm-env/Lsglang/logs/serve_dsv41_tp4_h100_20261026_085714.log
+--------------------------------------------------------------
+1) 期望串 [LK_GPU_CACHE_SLOTS: layer] 命中行数: 80  (硬门槛 >= 1)
+  [ OK ]   ✓ 建池成功 (EXPECT 串出现)
+grep: write error: Broken pipe
+grep: write error: Broken pipe
+           [2026-10-26 09:07:08 TP3 EP1] LK_GPU_CACHE_SLOTS: layer 20: 112 VRAM rows (0.98 GiB, W4A8), up to 8 misses admitted per forward, 192 experts pinned on host (3.36 GiB, checkpoint + row layouts), row so
+           [2026-10-26 09:07:08 TP1 EP0] LK_GPU_CACHE_SLOTS: layer 20: 112 VRAM rows (0.98 GiB, W4A8), up to 8 misses admitted per forward, 192 experts pinned on host (3.36 GiB, checkpoint + row layouts), row so
+           [2026-10-26 09:07:08 TP2 EP1] LK_GPU_CACHE_SLOTS: layer 20: 112 VRAM rows (0.98 GiB, W4A8), up to 8 misses admitted per forward, 192 experts pinned on host (3.36 GiB, checkpoint + row layouts), row so
+### 完成 2026-10-26_09:19:24
