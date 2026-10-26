@@ -320,3 +320,25 @@ def test_admitted_misses_are_copied_and_overflow_alone_runs_on_uva():
         )
         assert torch.isnan(gout_part.cpu()[~overflow]).all()
         torch.testing.assert_close(gout_part.cpu()[overflow], expected[overflow], rtol=2e-4, atol=1e-3)
+
+
+def test_combine_overflow_reads_only_overflow_routes():
+    """The graph path no longer zeroes the UVA output: rows of non-overflow routes hold
+    stale data, and the combine must add only the routes ``miss_tab`` marks -1."""
+    from sglang.kernels.ops.moe.lk_verify_uva import combine_overflow
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    rows, k, H = 5, 3, 1500  # H not a multiple of the block
+    hits = torch.randn(rows, H, device=device).bfloat16()
+    gout_part = torch.full((rows * k, H), float("nan"), device=device)
+    miss_tab = torch.zeros(rows * k, dtype=torch.int32, device=device)
+    for route in (1, 2, 7, 14):
+        miss_tab[route] = -1
+        gout_part[route] = torch.randn(H, device=device)
+    expected = hits.float().clone()
+    for route in (1, 2, 7, 14):
+        expected[route // k] += gout_part[route]
+    out = hits.clone()
+    combine_overflow(hits=out, gout_part=gout_part, miss_tab=miss_tab, top_k=k, out=out)
+    # bf16 output: summation order may flip the last bit; stale NaNs must not leak in.
+    torch.testing.assert_close(out.float().cpu(), expected.cpu(), rtol=1e-2, atol=1e-2)

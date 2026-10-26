@@ -393,6 +393,7 @@ def _graph_forward(cache, *, x, topk_ids, topk_weights, buffers: ForwardBuffers,
     """Fixed launches: hits and admitted misses in CUTLASS, the rest in the UVA kernel."""
     from sglang.kernels.ops.moe.lk_verify_uva import (
         admit_misses,
+        combine_overflow,
         copy_experts,
         launch_draft_miss_uva,
     )
@@ -410,7 +411,7 @@ def _graph_forward(cache, *, x, topk_ids, topk_weights, buffers: ForwardBuffers,
     side_stream = buffers.side_stream
     side_stream.wait_stream(main)
     with torch.cuda.stream(side_stream):
-        gout_part.zero_()
+        # Writes only overflow routes' rows; combine_overflow reads only those.
         launch_draft_miss_uva(
             hidden_states=x, topk_ids=topk_ids, topk_weights=topk_weights,
             slot_tab=miss_tab, gout_part=gout_part, rows_per_request=1,
@@ -421,7 +422,8 @@ def _graph_forward(cache, *, x, topk_ids, topk_weights, buffers: ForwardBuffers,
                  max_words=cache.max_words, num_programs=_COPY_PROGRAMS)
     hits = _cutlass(cache, x, slot_ids.view(rows, top_k), topk_weights, params)
     main.wait_stream(side_stream)
-    return gout_part.view(rows, top_k, -1).sum(dim=1).add_(hits)
+    combine_overflow(hits=hits, gout_part=gout_part, miss_tab=miss_tab, top_k=top_k, out=hits)
+    return hits
 
 
 def _admit_rows(cache: LayerCache, rows: list[int], experts: list[int]) -> None:
@@ -485,7 +487,8 @@ def _eager_forward(cache, *, x, topk_ids, topk_weights, params: MoeParams):
 
 def cache_forward(cache: LayerCache, *, hidden_states, topk_ids, topk_weights,
                   buffers: ForwardBuffers, params: MoeParams, graph: bool):
-    """MoE output [rows, H] fp32 of one offloaded layer; ``graph`` uses fixed buffers."""
+    """MoE output [rows, H] of one offloaded layer (``hidden_states`` dtype from a graph,
+    fp32 from eager); ``graph`` uses fixed buffers."""
     x = hidden_states.contiguous()
     topk_ids = topk_ids.to(torch.int32).contiguous()
     topk_weights = topk_weights.to(torch.float32).contiguous()

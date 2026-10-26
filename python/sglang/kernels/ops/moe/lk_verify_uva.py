@@ -599,26 +599,28 @@ def _admit_misses_kernel(
     holder_score = tl.load(score_ptr + holder, mask=held, other=0.0, volatile=True)
     victim_key = tl.where(in_r & ~busy, tl.where(held, holder_score, -1.0), float("inf"))
     want = tl.where(missed, score, -float("inf"))
-    n_admitted = 0
-    for i in tl.static_range(MAX_COPY):
-        row = tl.argmin(victim_key, 0)
-        new = tl.argmax(want, 0)
-        ok = (tl.min(victim_key, 0) < float("inf")) & (tl.max(want, 0) > -float("inf"))
-        old = tl.load(row_expert_ptr + row, mask=ok, other=-1)
-        tl.store(slot_of_ptr + old, -1, mask=ok & (old >= 0))
-        tl.store(slot_of_ptr + new, row, mask=ok)
-        tl.store(row_expert_ptr + row, new, mask=ok)
-        tl.store(copy_row_ptr + i, row, mask=ok)
-        tl.store(copy_expert_ptr + i, new, mask=ok)
-        n_admitted += ok.to(tl.int32)
-        victim_key = tl.where(r == row, float("inf"), victim_key)
-        want = tl.where(e == new, -float("inf"), want)
+    n_missed = tl.sum(missed.to(tl.int32), 0)
+    n_admitted = tl.full((), 0, tl.int32)
+    # Most forwards miss nothing; they skip the selection rounds.
+    if n_missed > 0:
+        for i in tl.static_range(MAX_COPY):
+            row = tl.argmin(victim_key, 0)
+            new = tl.argmax(want, 0)
+            ok = (tl.min(victim_key, 0) < float("inf")) & (tl.max(want, 0) > -float("inf"))
+            old = tl.load(row_expert_ptr + row, mask=ok, other=-1)
+            tl.store(slot_of_ptr + old, -1, mask=ok & (old >= 0))
+            tl.store(slot_of_ptr + new, row, mask=ok)
+            tl.store(row_expert_ptr + row, new, mask=ok)
+            tl.store(copy_row_ptr + i, row, mask=ok)
+            tl.store(copy_expert_ptr + i, new, mask=ok)
+            n_admitted += ok.to(tl.int32)
+            victim_key = tl.where(r == row, float("inf"), victim_key)
+            want = tl.where(e == new, -float("inf"), want)
     tl.debug_barrier()
     slot = tl.load(slot_of_ptr + expert, mask=local, other=-1, volatile=True)
     overflow = local & (slot < 0)
     tl.store(slot_ids_ptr + s, tl.where(slot >= 0, slot, num_rows), mask=live)
     tl.store(miss_tab_ptr + s, tl.where(overflow, -1, 0), mask=live)
-    n_missed = tl.sum(missed.to(tl.int32), 0)
     tl.atomic_add(miss_hist_ptr + tl.minimum(n_missed, BUCKETS - 1), 1)
     tl.atomic_add(stats_ptr + 0, tl.sum(local.to(tl.int32), 0))
     tl.atomic_add(stats_ptr + 1, tl.sum(hit.to(tl.int32), 0))
@@ -689,3 +691,33 @@ def copy_experts(*, copy_row, copy_expert, src_ptrs, dst_ptrs, words, max_words:
         copy_row, copy_expert, src_ptrs, dst_ptrs, words, words.numel(),
         triton.cdiv(max_words, block), BLOCK=block, NPROG=num_programs,
         MAX_COPY=copy_row.numel())
+
+
+@triton.jit
+def _combine_overflow_kernel(hits_ptr, gout_part_ptr, miss_tab_ptr, out_ptr, top_k,
+                             H: tl.constexpr, BLOCK_H: tl.constexpr, BLOCK_K: tl.constexpr):
+    row = tl.program_id(0)
+    h = tl.program_id(1) * BLOCK_H + tl.arange(0, BLOCK_H)
+    in_h = h < H
+    j = tl.arange(0, BLOCK_K)
+    in_k = j < top_k
+    route = row * top_k + j
+    overflow = in_k & (tl.load(miss_tab_ptr + route, mask=in_k, other=0) < 0)
+    acc = tl.load(hits_ptr + row * H + h, mask=in_h, other=0.0).to(tl.float32)
+    part = tl.load(gout_part_ptr + route[:, None].to(tl.int64) * H + h[None, :],
+                   mask=overflow[:, None] & in_h[None, :], other=0.0)
+    acc += tl.sum(part, 0)
+    tl.store(out_ptr + row * H + h, acc.to(out_ptr.dtype.element_ty), mask=in_h)
+
+
+def combine_overflow(*, hits, gout_part, miss_tab, top_k: int, out) -> None:
+    """``out[r] = hits[r] + sum of gout_part over row r's overflow routes``.
+
+    Reads ``gout_part`` only where ``miss_tab`` is -1, so the UVA kernel's other
+    rows need no zeroing.
+    """
+    rows, hidden = hits.shape
+    block_h = 1024
+    _combine_overflow_kernel[(rows, triton.cdiv(hidden, block_h))](
+        hits, gout_part, miss_tab, out, top_k, H=hidden, BLOCK_H=block_h,
+        BLOCK_K=triton.next_power_of_2(top_k))

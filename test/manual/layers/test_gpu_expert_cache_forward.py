@@ -91,7 +91,7 @@ def _run(cache, buffers, params, ids, x, weights, graph):
                         topk_weights=weights.cuda(), buffers=buffers, params=params,
                         graph=graph)
     torch.cuda.synchronize()
-    return out.cpu()
+    return out.float().cpu()  # graph returns the input dtype, eager fp32
 
 
 def _consistent(cache):
